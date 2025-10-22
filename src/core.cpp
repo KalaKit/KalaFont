@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <sstream>
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/string_utils.hpp"
@@ -14,6 +15,7 @@
 
 #include "core.hpp"
 #include "command.hpp"
+#include "parser.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
@@ -23,6 +25,7 @@ using KalaHeaders::ListDirectoryContents;
 using KalaFont::Core;
 using KalaFont::Command;
 using KalaFont::CommandManager;
+using KalaFont::Parser;
 
 using std::cin;
 using std::getline;
@@ -30,6 +33,7 @@ using std::ostringstream;
 using std::string;
 using std::to_string;
 using std::vector;
+using std::ostringstream;
 using std::filesystem::current_path;
 using std::filesystem::path;
 
@@ -90,6 +94,30 @@ void GetParams(int argc, char* argv[])
 void WaitForInput()
 {
 	AddBuiltInCommands();
+
+	ostringstream parseMsg{};
+
+	parseMsg << "Parses an otf/ttf font into a kfont file. Second parameter must be the path where the original font file is at,"
+		<< " third parameter must be the path you want to create the new kfont file to,"
+		<< " fourth parameter must be the size you want the font to be parsed as.";
+
+	Command cmd_parse
+	{
+		.primary = { "parse" },
+		.description = parseMsg.str(),
+		.paramCount = 4,
+		.targetFunction = Parser::ParseFont
+	};
+	Command cmd_get
+	{
+		.primary = { "get" },
+		.description = "Displays info about a parsed kfont file. Second parameter must be a valid path to a parsed kfont file.",
+		.paramCount = 2,
+		.targetFunction = Parser::GetKFontInfo
+	};
+
+	CommandManager::AddCommand(cmd_parse);
+	CommandManager::AddCommand(cmd_get);
 
 	string line{};
 	while (true)
