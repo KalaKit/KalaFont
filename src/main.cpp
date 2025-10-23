@@ -7,9 +7,9 @@
 
 using KalaFont::Core;
 
-int main(int argc, char* argv[])
+int main()
 {
-	Core::Run(argc, argv);
+	Core::Run();
 
 	return 0;
 }

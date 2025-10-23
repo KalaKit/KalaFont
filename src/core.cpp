@@ -19,7 +19,9 @@
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
+using KalaHeaders::ContainsString;
 using KalaHeaders::SplitString;
+using KalaHeaders::TrimString;
 using KalaHeaders::ListDirectoryContents;
 
 using KalaFont::Core;
@@ -36,9 +38,6 @@ using std::vector;
 using std::ostringstream;
 using std::filesystem::current_path;
 using std::filesystem::path;
-
-static void GetParams(int argc, char* argv[]);
-static void WaitForInput();
 
 static void AddBuiltInCommands();
 
@@ -61,79 +60,64 @@ static void Command_Exit(const vector<string>& params);
 
 namespace KalaFont
 {
-	void Core::Run(int argc, char* argv[])
+	void Core::Run()
 	{
-		GetParams(argc, argv);
-		WaitForInput();
-	}
-}
+		AddBuiltInCommands();
 
-void GetParams(int argc, char* argv[])
-{
-	if (argc == 1) WaitForInput();
+		ostringstream parseMsg{};
 
-	string insertedCommand{};
+		parseMsg << "Parses an otf/ttf font into a kfont file. Second parameter must be the path where the original font file is at,"
+			<< " third parameter must be the path you want to create the new kfont file to,"
+			<< " fourth parameter must be the size you want the font to be parsed as.";
 
-	vector<string> params{};
-	for (int i = 1; i < argc; ++i)
-	{
-		params.emplace_back(argv[i]);
-		insertedCommand += "'" + string(argv[i]) + "' ";
-	}
+		Command cmd_parse
+		{
+			.primary = { "parse" },
+			.description = parseMsg.str(),
+			.paramCount = 4,
+			.targetFunction = Parser::ParseFont
+		};
+		Command cmd_get
+		{
+			.primary = { "get" },
+			.description = "Displays info about a parsed kfont file. Second parameter must be a valid path to a parsed kfont file.",
+			.paramCount = 2,
+			.targetFunction = Parser::GetKFontInfo
+		};
 
-	if (params.empty()) WaitForInput();
+		CommandManager::AddCommand(cmd_parse);
+		CommandManager::AddCommand(cmd_get);
 
-	Log::Print(
-		"Inserted command: " + insertedCommand + "\n",
-		"PARSE",
-		LogType::LOG_INFO);
+		string line{};
+		while (true)
+		{
+			Log::Print("\nEnter command:");
 
-	CommandManager::ParseCommand(params);
-}
+			getline(cin, line);
 
-void WaitForInput()
-{
-	AddBuiltInCommands();
+			//uncomment if you want each new command to clean the console
+			//system("cls");
 
-	ostringstream parseMsg{};
+			if (line.empty()) continue;
 
-	parseMsg << "Parses an otf/ttf font into a kfont file. Second parameter must be the path where the original font file is at,"
-		<< " third parameter must be the path you want to create the new kfont file to,"
-		<< " fourth parameter must be the size you want the font to be parsed as.";
+			vector<string> splitCommands{};
+			if (ContainsString(line, "&"))
+			{
+				splitCommands = SplitString(line, "&");
+			}
+			else splitCommands.push_back(line);
 
-	Command cmd_parse
-	{
-		.primary = { "parse" },
-		.description = parseMsg.str(),
-		.paramCount = 4,
-		.targetFunction = Parser::ParseFont
-	};
-	Command cmd_get
-	{
-		.primary = { "get" },
-		.description = "Displays info about a parsed kfont file. Second parameter must be a valid path to a parsed kfont file.",
-		.paramCount = 2,
-		.targetFunction = Parser::GetKFontInfo
-	};
+			for (const auto& c : splitCommands)
+			{
+				string cleanedLine = TrimString(c);
 
-	CommandManager::AddCommand(cmd_parse);
-	CommandManager::AddCommand(cmd_get);
+				vector<string> splitValue = SplitString(cleanedLine, " ");
 
-	string line{};
-	while (true)
-	{
-		Log::Print("\nEnter command:");
+				if (splitValue.size() == 0) continue;
 
-		getline(cin, line);
-
-		//uncomment if you want each new command to clean the console
-		//system("cls");
-
-		vector<string> splitValue = SplitString(line, " ");
-
-		if (splitValue.size() == 0) continue;
-
-		CommandManager::ParseCommand(splitValue);
+				CommandManager::ParseCommand(splitValue);
+			}
+		}
 	}
 }
 
@@ -216,7 +200,10 @@ void Command_Help(const vector<string>& params)
 {
 	ostringstream result{};
 
-	result << "\nListing all commands. Type 'info' with a command name as the second parameter to get more info about that command\n";
+	result << "\nType 'info' with a command name as the"
+		<< " second parameter to get more info about that command.\n"
+		<< "Use the ampersand (&) symbol to stack commands, for example '--list & --qe' to list and quick exit.\n\n"
+		<< "Listing all commands:\n";
 	for (const auto& c : CommandManager::commands)
 	{
 		for (const auto& p : c.primary)
