@@ -12,15 +12,19 @@
 #include "KalaHeaders/log_utils.hpp"
 
 #include "parser.hpp"
+#include "core.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
+
+using KalaFont::Core;
 
 using std::vector;
 using std::string;
 using std::to_string;
 using std::filesystem::exists;
 using std::filesystem::is_regular_file;
+using std::filesystem::current_path;
 using std::filesystem::path;
 using std::from_chars;
 using std::errc;
@@ -67,20 +71,27 @@ namespace KalaFont
 
 bool ParsePreCheck(const vector<string>& params)
 {
-	if (!exists(params[1]))
+	path fontPath = path(params[1]);
+	path kfontPath = path(params[2]);
+
+	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
+	path correctFontPath = weakly_canonical(Core::currentDir / fontPath);
+	path correctKFontPath = weakly_canonical(Core::currentDir / kfontPath);
+
+	if (!exists(correctFontPath))
 	{
 		Log::Print(
-			"Cannot parse to kfont because font origin path '" + params[1] + "' does not exist!",
+			"Cannot parse to kfont because font origin path '" + correctFontPath.string() + "' does not exist!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
 
 		return false;
 	}
-	if (exists(params[2]))
+	if (exists(correctKFontPath))
 	{
 		Log::Print(
-			"Cannot parse to kfont because kfont target path '" + params[1] + "' already exists!",
+			"Cannot parse to kfont because kfont target path '" + correctKFontPath.string() + "' already exists!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -98,10 +109,10 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (!is_regular_file(params[1]))
+	if (!is_regular_file(correctFontPath))
 	{
 		Log::Print(
-			"Cannot parse to kfont because font origin path '" + params[1] + "' is not a regular file!",
+			"Cannot parse to kfont because font origin path '" + correctFontPath.string() + "' is not a regular file!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -109,12 +120,12 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (!path(params[1]).has_extension()
-		|| path(params[1]).extension() != ".ttf"
-		|| path(params[1]).extension() != ".otf")
+	if (!path(correctFontPath).has_extension()
+		|| (path(correctFontPath).extension() != ".ttf"
+		&& path(correctFontPath).extension() != ".otf"))
 	{
 		Log::Print(
-			"Cannot parse to kfont because kfont target path '" + params[2] + "' does not have a valid extension!",
+			"Cannot parse to kfont because font origin path '" + correctFontPath.string() + "' does not have a valid extension!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -122,10 +133,11 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (path(params[2]).extension() != ".kfont")
+	if (!path(correctKFontPath).has_extension()
+		|| path(correctKFontPath).extension() != ".kfont")
 	{
 		Log::Print(
-			"Cannot parse to kfont because kfont target path '" + params[1] + "' does not have a valid extension!",
+			"Cannot parse to kfont because kfont target path '" + correctKFontPath.string() + "' does not have a valid extension!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -138,10 +150,15 @@ bool ParsePreCheck(const vector<string>& params)
 
 bool GetPreCheck(const vector<string>& params)
 {
-	if (!exists(params[1]))
+	path fontPath = path(params[1]);
+
+	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
+	path correctFontPath = weakly_canonical(Core::currentDir / fontPath);
+
+	if (!exists(correctFontPath))
 	{
 		Log::Print(
-			"Cannot get kfont info because kfont target path '" + params[1] + "' does not exist!",
+			"Cannot get kfont info because kfont target path '" + correctFontPath.string() + "' does not exist!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -149,10 +166,10 @@ bool GetPreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (!is_regular_file(params[1]))
+	if (!is_regular_file(correctFontPath))
 	{
 		Log::Print(
-			"Cannot get kfont info because kfont target path '" + params[1] + "' is not a regular file!",
+			"Cannot get kfont info because kfont target path '" + correctFontPath.string() + "' is not a regular file!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -160,11 +177,11 @@ bool GetPreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (!path(params[1]).has_extension()
-		|| path(params[1]).extension() != ".kfont")
+	if (!path(correctFontPath).has_extension()
+		|| path(correctFontPath).extension() != ".kfont")
 	{
 		Log::Print(
-			"Cannot get kfont info because kfont target path '" + params[1] + "' does not have a valid extension!",
+			"Cannot get kfont info because kfont target path '" + correctFontPath.string() + "' does not have a valid extension!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
