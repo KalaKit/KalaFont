@@ -39,6 +39,7 @@ using std::ostringstream;
 using std::filesystem::current_path;
 using std::filesystem::path;
 
+static void AddKalaFontCommands();
 static void AddBuiltInCommands();
 
 //Built-in command for listing all commands
@@ -60,33 +61,22 @@ static void Command_Exit(const vector<string>& params);
 
 namespace KalaFont
 {
-	void Core::Run()
+	void Core::Run(int argc, char* argv[])
 	{
 		AddBuiltInCommands();
+		AddKalaFontCommands();
 
-		ostringstream parseMsg{};
-
-		parseMsg << "Parses an otf/ttf font into a kfont file. Second parameter must be the path where the original font file is at,"
-			<< " third parameter must be the path you want to create the new kfont file to,"
-			<< " fourth parameter must be the size you want the font to be parsed as.";
-
-		Command cmd_parse
+		//run the passed command if one was passed
+		if (argc > 1)
 		{
-			.primary = { "parse" },
-			.description = parseMsg.str(),
-			.paramCount = 4,
-			.targetFunction = Parser::ParseFont
-		};
-		Command cmd_get
-		{
-			.primary = { "get" },
-			.description = "Displays info about a parsed kfont file. Second parameter must be a valid path to a parsed kfont file.",
-			.paramCount = 2,
-			.targetFunction = Parser::GetKFontInfo
-		};
+			vector<string> params{};
+			for (int i = 1; i < argc; ++i) params.emplace_back(argv[i]);
 
-		CommandManager::AddCommand(cmd_parse);
-		CommandManager::AddCommand(cmd_get);
+			if (!params.empty()) CommandManager::ParseCommand(params);
+
+			//always exits if a command was passed, otherwise goes into cli mode
+			Command_Exit({});
+		}
 
 		string line{};
 		while (true)
@@ -194,6 +184,33 @@ void AddBuiltInCommands()
 	CommandManager::AddCommand(cmd_clear);
 	CommandManager::AddCommand(cmd_exit);
 	CommandManager::AddCommand(cmd_qe);
+}
+
+void AddKalaFontCommands()
+{
+	ostringstream parseMsg{};
+
+	parseMsg << "Parses an otf/ttf font into a kfont file. Second parameter must be the path where the original font file is at,"
+		<< " third parameter must be the path you want to create the new kfont file to,"
+		<< " fourth parameter must be the size you want the font to be parsed as.";
+
+	Command cmd_parse
+	{
+		.primary = { "parse" },
+		.description = parseMsg.str(),
+		.paramCount = 4,
+		.targetFunction = Parser::ParseFont
+	};
+	Command cmd_get
+	{
+		.primary = { "get" },
+		.description = "Displays info about a parsed kfont file. Second parameter must be a valid path to a parsed kfont file.",
+		.paramCount = 2,
+		.targetFunction = Parser::GetKFontInfo
+	};
+
+	CommandManager::AddCommand(cmd_parse);
+	CommandManager::AddCommand(cmd_get);
 }
 
 void Command_Help(const vector<string>& params)
