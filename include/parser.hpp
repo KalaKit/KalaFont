@@ -54,6 +54,9 @@ namespace KalaFont
 		//Parses an otf/ttf font into a kfont file
 		static void ParseFont(const vector<string>& params);
 
+		//Parses an otf/ttf font into a kfont file with detailed logs
+		static void VerboseParseFont(const vector<string>& params);
+
 		//Displays info about a parsed kfont file
 		static void GetKFontInfo(const vector<string>& params);
 	};

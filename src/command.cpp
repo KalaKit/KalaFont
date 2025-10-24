@@ -39,21 +39,39 @@ namespace KalaFont
 
 		for (const auto& c : commands)
 		{
-			if (find(c.primary.begin(), c.primary.end(), cleanedParams[0]) != c.primary.end()
-				&& cleanedParams.size() == c.paramCount)
+			if (find(c.primary.begin(), c.primary.end(), cleanedParams[0]) != c.primary.end())
 			{
-				foundCommand = c;
+				if (cleanedParams.size() == c.paramCount)
+				{
+					foundCommand = c;
+					break;
+				}
+				
+				Log::Print(
+					"Failed to run command '" + cleanedParams[0] + "'! Incorrect amount of parameters were passed for the command.",
+					"PARSE",
+					LogType::LOG_ERROR,
+					2);
 
-				break;
+				return false;
 			}
 		}
 
-		if (foundCommand.primary.empty()
-			&& foundCommand.paramCount == 0
-			&& !foundCommand.targetFunction)
+		if (foundCommand.primary.empty())
 		{
 			Log::Print(
-				"Inserted command '" + cleanedParams[0] + "' does not exist!",
+				"Failed to run command '" + cleanedParams[0] + "'! The command does not exist.",
+				"PARSE",
+				LogType::LOG_ERROR,
+				2);
+
+			return false;
+		}
+
+		if (foundCommand.paramCount == 0)
+		{
+			Log::Print(
+				"Target command '" + cleanedParams[0] + "' has an invalid param count!",
 				"PARSE",
 				LogType::LOG_ERROR,
 				2);
@@ -64,7 +82,7 @@ namespace KalaFont
 		if (!foundCommand.targetFunction)
 		{
 			Log::Print(
-				"Target command '" + cleanedParams[0] + "' is nullptr!",
+				"Target command '" + cleanedParams[0] + "' has no attached function!",
 				"PARSE",
 				LogType::LOG_ERROR,
 				2);

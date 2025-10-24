@@ -6,7 +6,6 @@
 #include <vector>
 #include <string>
 #include <filesystem>
-#include <system_error>
 #include <algorithm>
 #include <sstream>
 
@@ -15,12 +14,14 @@
 
 #include "parser.hpp"
 #include "core.hpp"
+#include "command.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
 using KalaHeaders::ReadBinaryLinesFromFile;
 
 using KalaFont::Core;
+using KalaFont::CommandManager;
 
 using std::vector;
 using std::string;
@@ -29,8 +30,6 @@ using std::filesystem::exists;
 using std::filesystem::is_regular_file;
 using std::filesystem::current_path;
 using std::filesystem::path;
-using std::from_chars;
-using std::errc;
 using std::stoi;
 using std::clamp;
 using std::ostringstream;
@@ -38,13 +37,9 @@ using std::hex;
 using std::dec;
 using std::min;
 
-static bool IsInteger(const string& s)
-{
-	int value{};
-	auto [ptr, ec] = from_chars(s.data(), s.data() + s.size(), value);
-	return ec == errc{}
-	&& ptr == s.data() + s.size();
-}
+constexpr u32 TTF_VERSION = 0x00010000;
+constexpr u32 OTF_VERSION = 'OTTO';
+static u32 thisVersion{};
 
 static u16 ReadU16(
 	const vector<u8>& data, 
@@ -123,12 +118,30 @@ struct GlyphInfo
 	i16 yMax{};
 };
 
+static void Parse(
+	const vector<string>& params,
+	bool isVerbose = false);
+static void ParseTTF(
+	const vector<u8>& data,
+	const OffsetTable& offsetTable,
+	const HeadTable& headTable,
+	const MaxpTable& maxpTable,
+	bool isVerbose);
+static void ParseOTF(
+	const vector<u8>& data,
+	const OffsetTable& offsetTable,
+	const HeadTable& headTable,
+	const MaxpTable& maxpTable,
+	bool isVerbose);
+
 static OffsetTable ReadOffsetTable(
 	const string& path, 
-	vector<u8>& outData);
+	vector<u8>& outData,
+	bool isVerbose);
 static HeadTable ReadHeadTable(
 	const vector<u8>& data, 
-	u32 offset);
+	u32 offset,
+	bool isVerbose);
 static MaxpTable ReadMaxpTable(
 	const vector<u8>& data, 
 	u32 offset);
@@ -142,120 +155,68 @@ static GlyphInfo ReadGlyphHeader(
 	u32 glyfOffset,
 	u32 glyfStart);
 
-static bool ParsePreCheck(const vector<string>& params);
-static bool GetPreCheck(const vector<string>& params);
+static void ParsePreCheck(const vector<string>& params);
+static void GetPreCheck(const vector<string>& params);
 
 namespace KalaFont
 {
 	void Parser::ParseFont(const vector<string>& params)
 	{
-		if (!ParsePreCheck(params)) return;
+		Parse(params, false);
+	}
+	void Parser::VerboseParseFont(const vector<string>& params)
+	{
+		Parse(params, true);
+	}
 
-		int val = stoi(params[3]);
-		if (val < 1
-			|| val > 255)
-		{
-			val = clamp(val, 1, 255);
-			string clampedVal = to_string(val);
+	void Parser::GetKFontInfo(const vector<string>& params)
+	{
+		GetPreCheck(params);
+	}
+}
 
-			Log::Print(
-				"Font size '" + params[3] + "' was out of range! It was clamped to a safe value '" + clampedVal + "'.",
-				"PARSE",
-				LogType::LOG_WARNING);
-		}
+void Parse(
+	const vector<string>& params,
+	bool isVerbose)
+{
+	ParsePreCheck(params);
 
-		//
-		// OFFSET TABLE
-		//
+	//
+	// OFFSET TABLE
+	//
 
-		vector<u8> data{};
-		OffsetTable oTable = ReadOffsetTable(params[1], data);
+	vector<u8> data{};
 
-		if (data.empty())
-		{
-			Log::Print(
-				"Failed to parse offset table for font '" + params[1] + "'! No data was found.",
-				"PARSE",
-				LogType::LOG_ERROR,
-				2);
+	OffsetTable offsetTable = ReadOffsetTable(
+		params[1], 
+		data,
+		isVerbose);
 
-			return;
-		}
+	if (offsetTable.tables.empty()) return;
 
-		//
-		// HEAD TABLE
-		//
+	//
+	// HEAD TABLE
+	//
 
-		auto headIt = find_if(oTable.tables.begin(), oTable.tables.end(),
-			[](const TableRecord& t) { return string(t.tag, 4) == "head"; });
+	auto headIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
+		[](const TableRecord& t) { return string(t.tag, 4) == "head"; });
 
-		if (headIt == oTable.tables.end())
-		{
-			Log::Print(
-				"Failed to parse offset table for font '" + params[1] + "'! Head tag was not found.",
-				"PARSE",
-				LogType::LOG_ERROR,
-				2);
+	HeadTable headTable = ReadHeadTable(
+		data, 
+		headIt->offset,
+		isVerbose);
 
-			return;
-		}
+	//
+	// MAXP TABLE
+	//
 
-		HeadTable headTable = ReadHeadTable(data, headIt->offset);
+	auto maxpIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
+		[](const TableRecord& t) { return string(t.tag, 4) == "maxp"; });
 
-		if (headTable.magicNumber == 0
-			|| headTable.magicNumber != 0x5F0F3CF5)
-		{
-			Log::Print(
-				"Failed to parse head table for font '" + params[1] + "'! Magic number is incorrect.",
-				"PARSE",
-				LogType::LOG_ERROR,
-				2);
+	MaxpTable maxpTable = ReadMaxpTable(data, maxpIt->offset);
 
-			return;
-		}
-
-		ostringstream headTableMsg{};
-
-		headTableMsg << "Head table data:\n"
-			<< "  majorVersion:       " << headTable.majorVersion << "\n"
-			<< "  minorVersion:       " << headTable.minorVersion << "\n"
-			<< "  fontRevision:       " << headTable.fontRevision << "\n"
-			<< "  checkSumAdjustment: " << headTable.checkSumAdjustment << "\n"
-			<< "  magicNumber:        0x" << hex << headTable.magicNumber << dec << "\n"
-			<< "  flags:              " << headTable.flags << "\n"
-			<< "  unitsPerEm:         " << headTable.unitsPerEm << "\n"
-			<< "  xMin:               " << headTable.xMin << "\n"
-			<< "  yMin:               " << headTable.yMin << "\n"
-			<< "  xMax:               " << headTable.xMax << "\n"
-			<< "  yMax:               " << headTable.yMax << "\n"
-			<< "  macStyle:           " << headTable.macStyle << "\n"
-			<< "  lowestRecPPEM:      " << headTable.lowestRecPPEM << "\n"
-			<< "  fontDirectionHint:  " << headTable.fontDirectionHint << "\n"
-			<< "  indexToLocFormat:   " << headTable.indexToLocFormat << "\n"
-			<< "  glyphDataFormat:    " << headTable.glyphDataFormat << "\n";
-
-		Log::Print(headTableMsg.str());
-
-		//
-		// MAXP TABLE
-		//
-
-		auto maxpIt = find_if(oTable.tables.begin(), oTable.tables.end(),
-			[](const TableRecord& t) { return string(t.tag, 4) == "maxp"; });
-
-		if (maxpIt == oTable.tables.end())
-		{
-			Log::Print(
-				"Failed to parse offset table for font '" + params[1] + "'! Maxp tag was not found.",
-				"PARSE",
-				LogType::LOG_ERROR,
-				2);
-
-			return;
-		}
-
-		MaxpTable maxpTable = ReadMaxpTable(data, maxpIt->offset);
-
+	if (isVerbose)
+	{
 		ostringstream maxpTableMsg{};
 
 		maxpTableMsg << "Maxp table data:\n"
@@ -263,31 +224,59 @@ namespace KalaFont
 			<< "  numGlyphs: " << maxpTable.numGlyphs << "\n";
 
 		Log::Print(maxpTableMsg.str());
+	}
 
-		//
-		// LOCA TABLE
-		//
-
-		auto locaIt = find_if(oTable.tables.begin(), oTable.tables.end(),
-			[](const TableRecord& t) { return string(t.tag, 4) == "loca"; });
-
-		if (maxpIt == oTable.tables.end())
-		{
-			Log::Print(
-				"Failed to parse offset table for font '" + params[1] + "'! Loca tag was not found.",
-				"PARSE",
-				LogType::LOG_ERROR,
-				2);
-
-			return;
-		}
-
-		LocaTable locaTable = ReadLocaTable(
+	if (thisVersion == TTF_VERSION)
+	{
+		ParseTTF(
+			data, 
+			offsetTable, 
+			headTable, 
+			maxpTable,
+			isVerbose);
+	}
+	else
+	{
+		ParseOTF(
 			data,
-			locaIt->offset,
-			maxpTable.numGlyphs,
-			headTable.indexToLocFormat);
+			offsetTable,
+			headTable,
+			maxpTable,
+			isVerbose);
+	}
 
+	string fontType = thisVersion == TTF_VERSION
+		? "TTF"
+		: "OTF";
+
+	Log::Print(
+		"Finished parsing " + fontType + " font!",
+		"PARSE",
+		LogType::LOG_SUCCESS);
+}
+
+void ParseTTF(
+	const vector<u8>& data,
+	const OffsetTable& offsetTable,
+	const HeadTable& headTable,
+	const MaxpTable& maxpTable,
+	bool isVerbose)
+{
+	//
+	// LOCA TABLE
+	//
+
+	auto locaIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
+		[](const TableRecord& t) { return string(t.tag, 4) == "loca"; });
+
+	LocaTable locaTable = ReadLocaTable(
+		data,
+		locaIt->offset,
+		maxpTable.numGlyphs,
+		headTable.indexToLocFormat);
+
+	if (isVerbose)
+	{
 		ostringstream locaTableMsg{};
 
 		locaTableMsg << "Loca table data:\n"
@@ -300,25 +289,17 @@ namespace KalaFont
 		}
 
 		Log::Print(locaTableMsg.str());
+	}
 
-		//
-		// GLYPH HEADER
-		//
+	//
+	// GLYPH HEADER
+	//
 
-		auto glyfIt = find_if(oTable.tables.begin(), oTable.tables.end(),
-			[](const TableRecord& t) { return string(t.tag, 4) == "glyf"; });
+	auto glyfIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
+		[](const TableRecord& t) { return string(t.tag, 4) == "glyf"; });
 
-		if (glyfIt == oTable.tables.end())
-		{
-			Log::Print(
-				"Failed to parse offset table for font '" + params[1] + "'! Glyf tag was not found.",
-				"PARSE",
-				LogType::LOG_ERROR,
-				2);
-
-			return;
-		}
-
+	if (isVerbose)
+	{
 		ostringstream glyphHeaderMsg{};
 
 		glyphHeaderMsg << "First 10 glyphs:\n";
@@ -336,8 +317,8 @@ namespace KalaFont
 			}
 
 			GlyphInfo gi = ReadGlyphHeader(
-				data, 
-				glyphBase, 
+				data,
+				glyphBase,
 				start);
 
 			glyphHeaderMsg << "  [" << i << "] contours: " << gi.numberOfContours
@@ -346,16 +327,22 @@ namespace KalaFont
 
 		Log::Print(glyphHeaderMsg.str());
 	}
+}
 
-	void Parser::GetKFontInfo(const vector<string>& params)
-	{
-		if (!GetPreCheck(params)) return;
-	}
+void ParseOTF(
+	const vector<u8>& data,
+	const OffsetTable& offsetTable,
+	const HeadTable& headTable,
+	const MaxpTable& maxpTable,
+	bool isVerbose)
+{
+
 }
 
 OffsetTable ReadOffsetTable(
 	const string& fontPath, 
-	vector<u8>& outData)
+	vector<u8>& outData,
+	bool isVerbose)
 {
 	OffsetTable table{};
 
@@ -373,7 +360,7 @@ OffsetTable ReadOffsetTable(
 			LogType::LOG_ERROR,
 			2);
 
-		return table;
+		CommandManager::ParseCommand({ "--e" });
 	}
 
 	size_t offset{};
@@ -397,19 +384,22 @@ OffsetTable ReadOffsetTable(
 		offset += 16;
 	}
 
-	ostringstream offsetTableMsg{};
-
-	offsetTableMsg << "\nOffset table data:\n";
-
-	for (const auto& rec : table.tables)
+	if (isVerbose)
 	{
-		string tag(rec.tag, 4);
-		offsetTableMsg << "  Table '" << tag << "' found at offset '"
-			<< rec.offset << "' with length '" 
-			<< rec.length << "'\n";
-	}
+		ostringstream offsetTableMsg{};
 
-	Log::Print(offsetTableMsg.str());
+		offsetTableMsg << "\nOffset table data:\n";
+
+		for (const auto& rec : table.tables)
+		{
+			string tag(rec.tag, 4);
+			offsetTableMsg << "  Table '" << tag << "' found at offset '"
+				<< rec.offset << "' with length '"
+				<< rec.length << "'\n";
+		}
+
+		Log::Print(offsetTableMsg.str());
+	}
 
 	outData = data;
 
@@ -418,7 +408,8 @@ OffsetTable ReadOffsetTable(
 
 HeadTable ReadHeadTable(
 	const vector<u8>& data, 
-	u32 offset)
+	u32 offset,
+	bool isVerbose)
 {
 	HeadTable table{};
 	
@@ -442,6 +433,42 @@ HeadTable ReadHeadTable(
 	table.fontDirectionHint  = static_cast<i16>(ReadU16(data, offset + 48));
 	table.indexToLocFormat   = static_cast<i16>(ReadU16(data, offset + 50));
 	table.glyphDataFormat    = static_cast<i16>(ReadU16(data, offset + 52));
+
+	if (table.magicNumber != 0x5F0F3CF5)
+	{
+		Log::Print(
+			"Failed to parse head table! Magic number is incorrect.",
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		CommandManager::ParseCommand({ "--e" });
+	}
+
+	if (isVerbose)
+	{
+		ostringstream headTableMsg{};
+
+		headTableMsg << "Head table data:\n"
+			<< "  majorVersion:       " << table.majorVersion << "\n"
+			<< "  minorVersion:       " << table.minorVersion << "\n"
+			<< "  fontRevision:       " << table.fontRevision << "\n"
+			<< "  checkSumAdjustment: " << table.checkSumAdjustment << "\n"
+			<< "  magicNumber:        0x" << hex << table.magicNumber << dec << "\n"
+			<< "  flags:              " << table.flags << "\n"
+			<< "  unitsPerEm:         " << table.unitsPerEm << "\n"
+			<< "  xMin:               " << table.xMin << "\n"
+			<< "  yMin:               " << table.yMin << "\n"
+			<< "  xMax:               " << table.xMax << "\n"
+			<< "  yMax:               " << table.yMax << "\n"
+			<< "  macStyle:           " << table.macStyle << "\n"
+			<< "  lowestRecPPEM:      " << table.lowestRecPPEM << "\n"
+			<< "  fontDirectionHint:  " << table.fontDirectionHint << "\n"
+			<< "  indexToLocFormat:   " << table.indexToLocFormat << "\n"
+			<< "  glyphDataFormat:    " << table.glyphDataFormat << "\n";
+
+		Log::Print(headTableMsg.str());
+	}
 
 	return table;
 }
@@ -503,7 +530,7 @@ GlyphInfo ReadGlyphHeader(
 	return gi;
 }
 
-bool ParsePreCheck(const vector<string>& params)
+void ParsePreCheck(const vector<string>& params)
 {
 	path fontPath = path(params[1]);
 	path kfontPath = path(params[2]);
@@ -515,43 +542,33 @@ bool ParsePreCheck(const vector<string>& params)
 	if (!exists(correctFontPath))
 	{
 		Log::Print(
-			"Cannot parse to kfont because font origin path '" + correctFontPath.string() + "' does not exist!",
+			"Cannot parse to kfont because the font file '" + correctFontPath.string() + "' does not exist!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
 	if (exists(correctKFontPath))
 	{
 		Log::Print(
-			"Cannot parse to kfont because kfont target path '" + correctKFontPath.string() + "' already exists!",
+			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the kfont file already exists!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
-	}
-	if (!IsInteger(params[3]))
-	{
-		Log::Print(
-			"Cannot parse to kfont because font size '" + params[3] + "' is not an integer!",
-			"PARSE",
-			LogType::LOG_ERROR,
-			2);
-
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
 
 	if (!is_regular_file(correctFontPath))
 	{
 		Log::Print(
-			"Cannot parse to kfont because font origin path '" + correctFontPath.string() + "' is not a regular file!",
+			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file is not a regular file!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
 
 	if (!path(correctFontPath).has_extension()
@@ -559,30 +576,70 @@ bool ParsePreCheck(const vector<string>& params)
 		&& path(correctFontPath).extension() != ".otf"))
 	{
 		Log::Print(
-			"Cannot parse to kfont because font origin path '" + correctFontPath.string() + "' does not have a valid extension!",
+			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file does not have a valid extension!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
 
 	if (!path(correctKFontPath).has_extension()
 		|| path(correctKFontPath).extension() != ".kfont")
 	{
 		Log::Print(
-			"Cannot parse to kfont because kfont target path '" + correctKFontPath.string() + "' does not have a valid extension!",
+			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the kfont file does not have a valid extension!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
 
-	return true;
+	size_t offset{};
+	vector<u8> versionData{};
+
+	string result = ReadBinaryLinesFromFile(correctFontPath.string(), versionData, 0, 4);
+	if (!result.empty())
+	{
+		Log::Print(
+			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "'! Reason: " + result,
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		CommandManager::ParseCommand({ "--e" });
+	}
+
+	thisVersion = ReadU32(versionData, offset);
+
+	if (path(correctFontPath).extension() == ".ttf"
+		&& thisVersion != TTF_VERSION)
+	{
+		Log::Print(
+			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file does not have a valid ttf/otf font version!",
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		CommandManager::ParseCommand({ "--e" });
+	}
+
+	if (path(correctFontPath).extension() == ".otf"
+		&& thisVersion != TTF_VERSION
+		&& thisVersion != OTF_VERSION)
+	{
+		Log::Print(
+			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file does not have a valid otf font version!",
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		CommandManager::ParseCommand({ "--e" });
+	}
 }
 
-bool GetPreCheck(const vector<string>& params)
+void GetPreCheck(const vector<string>& params)
 {
 	path fontPath = path(params[1]);
 
@@ -597,7 +654,7 @@ bool GetPreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
 
 	if (!is_regular_file(correctFontPath))
@@ -608,7 +665,7 @@ bool GetPreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
 
 	if (!path(correctFontPath).has_extension()
@@ -620,8 +677,6 @@ bool GetPreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		return false;
+		CommandManager::ParseCommand({ "--e" });
 	}
-
-	return true;
 }

@@ -190,16 +190,29 @@ void AddKalaFontCommands()
 {
 	ostringstream parseMsg{};
 
-	parseMsg << "Parses an otf/ttf font into a kfont file. Second parameter must be the path where the original font file is at,"
-		<< " third parameter must be the path you want to create the new kfont file to,"
-		<< " fourth parameter must be the size you want the font to be parsed as.";
+	parseMsg << "Parses an otf/ttf font into a kfont file."
+		<< " Second parameter must be the path where the original font file is at,"
+		<< " third parameter must be the path you want to create the new kfont file to.";
+
+	ostringstream verboseParseMsg{};
+
+	verboseParseMsg << "Parses an otf/ttf font into a kfont file and prints detailed info."
+		<< " Second parameter must be the path where the original font file is at,"
+		<< " third parameter must be the path you want to create the new kfont file to.";
 
 	Command cmd_parse
 	{
-		.primary = { "parse" },
+		.primary = { "parse", "p" },
 		.description = parseMsg.str(),
-		.paramCount = 4,
+		.paramCount = 3,
 		.targetFunction = Parser::ParseFont
+	};
+	Command cmd_quick_parse
+	{
+		.primary = { "vparse", "vp" },
+		.description = verboseParseMsg.str(),
+		.paramCount = 3,
+		.targetFunction = Parser::VerboseParseFont
 	};
 	Command cmd_get
 	{
@@ -210,6 +223,7 @@ void AddKalaFontCommands()
 	};
 
 	CommandManager::AddCommand(cmd_parse);
+	CommandManager::AddCommand(cmd_quick_parse);
 	CommandManager::AddCommand(cmd_get);
 }
 
