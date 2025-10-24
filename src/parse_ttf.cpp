@@ -40,16 +40,46 @@ struct GlyphInfo
 	i16 yMax{};
 };
 
+struct GlyphPoint
+{
+	i16 x{};
+	i16 y{};
+	bool onCurve{};
+};
+
+struct GlyphContours
+{
+	vector<vector<GlyphPoint>> contours{};
+	bool isComposite{};
+};
+
+enum GlyphFlags : u8
+{
+	GLYPH_ON_CURVE_POINT      = 0x01,
+	GLYPH_X_SHORT_SECTOR      = 0x02,
+	GLYPH_Y_SHORT_SECTOR      = 0x04,
+	GLYPH_REPEAT_FLAG         = 0x08,
+	GLYPH_X_SAME_OR_POS_SHORT = 0x10,
+	GLYPH_Y_SAME_OR_POS_SHORT = 0x20
+};
+
 static LocaTable ReadLocaTable(
 	const vector<u8>& data,
 	u32 offset,
 	u16 numGlyphs,
 	i16 indexToLocFormat,
 	bool isVerbose);
+
 static GlyphInfo ReadGlyphHeader(
 	const vector<u8>& data,
 	u32 glyfOffset,
 	u32 glyfStart);
+
+static GlyphContours ParseSimpleGlyph(
+	const vector<u8>& data,
+	u32 glyfBase,
+	u32 start,
+	u32 end);
 
 namespace KalaFont
 {
@@ -122,6 +152,52 @@ namespace KalaFont
 			Log::Print(glyphHeaderMsg.str());
 		}
 
+		//
+		// SIMPLE GLYPH
+		//
+
+		const u32 glyfBase = glyfIt->offset;
+
+		for (u32 gi = 0; gi < maxpTable.numGlyphs; ++gi)
+		{
+			u32 start = locaTable.glyphOffsets[gi];
+			u32 end = locaTable.glyphOffsets[gi + 1];
+
+			if (start == end) continue; //empty
+
+			GlyphContours glyphTable = ParseSimpleGlyph(
+				data,
+				glyfBase,
+				start,
+				end);
+
+			if (glyphTable.isComposite)
+			{
+				//TODO: handle composites here
+
+				continue;
+			}
+
+			if (isVerbose
+				&& !glyphTable.contours.empty())
+			{
+				const auto& c0 = glyphTable.contours[0];
+
+				ostringstream simpleGlyfMsg;
+
+				simpleGlyfMsg << "Glyph '" << gi << "' contours: " << glyphTable.contours.size()
+					<< ", first contour points: " << c0.size();
+
+				if (!c0.empty())
+				{
+					simpleGlyfMsg << "  p0: (" << c0[0].x << ", " << c0[0].y
+						<< ") on: " << c0[0].onCurve;
+				}
+
+				Log::Print(simpleGlyfMsg.str());
+			}
+		}
+
 		return true;
 	}
 }
@@ -186,4 +262,49 @@ GlyphInfo ReadGlyphHeader(
 	gi.yMax = static_cast<i16>(Parse::ReadU16(data, glyfOffset + glyfStart + 8));
 
 	return gi;
+}
+
+GlyphContours ParseSimpleGlyph(
+	const vector<u8>& data,
+	u32 glyfBase,
+	u32 start,
+	u32 end)
+{
+	GlyphContours contours{};
+
+	if (start == end) return contours; //empty glyph
+
+	size_t offset = size_t(glyfBase) + size_t(start);
+	const size_t pend = size_t(glyfBase) + size_t(end);
+
+	i16 numberOfContours = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
+	i16 xMin             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
+	i16 yMin             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
+	i16 xMax             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
+	i16 yMax             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
+
+	//composite glyph
+	if (numberOfContours < 0)
+	{
+		contours.isComposite = true;
+		return contours;
+	}
+
+	//simple glyph with no contours
+	if (numberOfContours == 0) return contours;
+
+	vector<u16> endPtsOfContours(numberOfContours);
+	for (int i = 0; i < numberOfContours; ++i)
+	{
+		endPtsOfContours[i] = Parse::ReadU16(data, offset);
+		offset += 2;
+	}
+
+	u16 instructionsLength = Parse::ReadU16(data, offset); offset += 2;
+	offset += instructionsLength; //ignore instructions
+
+	const size_t pointCount = size_t(endPtsOfContours.back()) + 1;
+	if (pointCount == 0) return contours;
+
+	return contours;
 }
