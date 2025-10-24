@@ -12,16 +12,23 @@
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/file_utils.hpp"
 
-#include "parser.hpp"
+#include "parse.hpp"
+#include "parse_ttf.hpp"
+#include "parse_otf.hpp"
 #include "core.hpp"
-#include "command.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
 using KalaHeaders::ReadBinaryLinesFromFile;
 
 using KalaFont::Core;
-using KalaFont::CommandManager;
+using KalaFont::Parse;
+using KalaFont::OffsetTable;
+using KalaFont::TableRecord;
+using KalaFont::HeadTable;
+using KalaFont::MaxpTable;
+using KalaFont::Parse_TTF;
+using KalaFont::Parse_OTF;
 
 using std::vector;
 using std::string;
@@ -39,100 +46,13 @@ using std::min;
 
 constexpr u32 TTF_VERSION = 0x00010000;
 constexpr u32 OTF_VERSION = 'OTTO';
+constexpr u32 MAGIC_NUMBER = 0x5F0F3CF5;
+
 static u32 thisVersion{};
 
-static u16 ReadU16(
-	const vector<u8>& data, 
-	size_t offset)
-{
-	return (data[offset] << 8)
-		| data[offset + 1];
-}
-static u32 ReadU32(
-	const vector<u8>& data, 
-	size_t offset)
-{
-	return (data[offset] << 24)
-		| (data[offset + 1] << 16)
-		| (data[offset + 2] << 8)
-		| (data[offset + 3]);
-}
-
-struct TableRecord
-{
-	char tag[4]{};
-	u32 checkSum{};
-	u32 offset{};
-	u32 length{};
-};
-
-struct OffsetTable
-{
-	u32 scalerType{};
-	u16 numTables{};
-	u16 searchRange{};
-	u16 entrySelector{};
-	u16 rangeShift{};
-	vector<TableRecord> tables{};
-};
-
-struct HeadTable
-{
-	i16 majorVersion{};
-	i16 minorVersion{};
-	f32 fontRevision{}; //fixed 16.16 value
-	u32 checkSumAdjustment{};
-	u32 magicNumber{};
-	u16 flags{};
-	u16 unitsPerEm{};
-	i64 created{}; //longDateTime (64-bit)
-	i64 modified{}; //longDateTime (64-bit)
-	i16 xMin{};
-	i16 yMin{};
-	i16 xMax{};
-	i16 yMax{};
-	u16 macStyle{};
-	u16 lowestRecPPEM{};
-	i16 fontDirectionHint{};
-	i16 indexToLocFormat{}; //0 = short, 1 = long
-	i16 glyphDataFormat{};
-};
-
-struct MaxpTable
-{
-	u32 version{};
-	u16 numGlyphs{};
-};
-
-struct LocaTable
-{
-	vector<u32> glyphOffsets{};
-};
-
-struct GlyphInfo
-{
-	i16 numberOfContours{};
-	i16 xMin{};
-	i16 yMin{};
-	i16 xMax{};
-	i16 yMax{};
-};
-
-static void Parse(
+static void ParseAny(
 	const vector<string>& params,
 	bool isVerbose = false);
-static void ParseTTF(
-	const vector<u8>& data,
-	const OffsetTable& offsetTable,
-	const HeadTable& headTable,
-	const MaxpTable& maxpTable,
-	bool isVerbose);
-static void ParseOTF(
-	const vector<u8>& data,
-	const OffsetTable& offsetTable,
-	const HeadTable& headTable,
-	const MaxpTable& maxpTable,
-	bool isVerbose);
 
 static OffsetTable ReadOffsetTable(
 	const string& path, 
@@ -146,38 +66,28 @@ static MaxpTable ReadMaxpTable(
 	const vector<u8>& data, 
 	u32 offset,
 	bool isVerbose);
-static LocaTable ReadLocaTable(
-	const vector<u8>& data, 
-	u32 offset, 
-	u16 numGlyphs, 
-	i16 indexToLocFormat,
-	bool isVerbose);
-static GlyphInfo ReadGlyphHeader(
-	const vector<u8>& data,
-	u32 glyfOffset,
-	u32 glyfStart);
 
 static bool ParsePreCheck(const vector<string>& params);
 static bool GetPreCheck(const vector<string>& params);
 
 namespace KalaFont
 {
-	void Parser::ParseFont(const vector<string>& params)
+	void Parse::ParseFont(const vector<string>& params)
 	{
-		Parse(params, false);
+		ParseAny(params, false);
 	}
-	void Parser::VerboseParseFont(const vector<string>& params)
+	void Parse::VerboseParseFont(const vector<string>& params)
 	{
-		Parse(params, true);
+		ParseAny(params, true);
 	}
 
-	void Parser::GetKFontInfo(const vector<string>& params)
+	void Parse::GetKFontInfo(const vector<string>& params)
 	{
 		GetPreCheck(params);
 	}
 }
 
-void Parse(
+void ParseAny(
 	const vector<string>& params,
 	bool isVerbose)
 {
@@ -194,7 +104,16 @@ void Parse(
 		data,
 		isVerbose);
 
-	if (offsetTable.tables.empty()) return;
+	if (offsetTable.tables.empty())
+	{
+		Log::Print(
+			"Failed to parse font because it had invalid offset table data!",
+			"PARSE_TTF",
+			LogType::LOG_ERROR,
+			2);
+
+		return;
+	}
 
 	//
 	// HEAD TABLE
@@ -208,7 +127,16 @@ void Parse(
 		headIt->offset,
 		isVerbose);
 
-	if (headTable.created = 0) return;
+	if (headTable.magicNumber == 0)
+	{
+		Log::Print(
+			"Failed to parse font because it had invalid head table data!",
+			"PARSE_TTF",
+			LogType::LOG_ERROR,
+			2);
+
+		return;
+	}
 
 	//
 	// MAXP TABLE
@@ -222,9 +150,21 @@ void Parse(
 		maxpIt->offset,
 		isVerbose);
 
+	if (maxpTable.numGlyphs == 0)
+	{
+		Log::Print(
+			"Failed to parse font because it had invalid maxp table data!",
+			"PARSE_TTF",
+			LogType::LOG_ERROR,
+			2);
+
+		return;
+	}
+
+	bool success{};
 	if (thisVersion == TTF_VERSION)
 	{
-		ParseTTF(
+		success = Parse_TTF::Parse(
 			data, 
 			offsetTable, 
 			headTable, 
@@ -233,7 +173,7 @@ void Parse(
 	}
 	else
 	{
-		ParseOTF(
+		success = Parse_TTF::Parse(
 			data,
 			offsetTable,
 			headTable,
@@ -245,79 +185,21 @@ void Parse(
 		? "TTF"
 		: "OTF";
 
+	if (!success)
+	{
+		Log::Print(
+			"Failed to parse " + fontType + " font!",
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		return;
+	}
+
 	Log::Print(
 		"Finished parsing " + fontType + " font!",
 		"PARSE",
 		LogType::LOG_SUCCESS);
-}
-
-void ParseTTF(
-	const vector<u8>& data,
-	const OffsetTable& offsetTable,
-	const HeadTable& headTable,
-	const MaxpTable& maxpTable,
-	bool isVerbose)
-{
-	//
-	// LOCA TABLE
-	//
-
-	auto locaIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
-		[](const TableRecord& t) { return string(t.tag, 4) == "loca"; });
-
-	LocaTable locaTable = ReadLocaTable(
-		data,
-		locaIt->offset,
-		maxpTable.numGlyphs,
-		headTable.indexToLocFormat,
-		isVerbose);
-
-	//
-	// GLYPH HEADER
-	//
-
-	auto glyfIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
-		[](const TableRecord& t) { return string(t.tag, 4) == "glyf"; });
-
-	if (isVerbose)
-	{
-		ostringstream glyphHeaderMsg{};
-
-		glyphHeaderMsg << "First 10 glyphs:\n";
-
-		const u32 glyphBase = glyfIt->offset;
-		for (u32 i = 0; i < min<u32>(10, maxpTable.numGlyphs); ++i)
-		{
-			u32 start = locaTable.glyphOffsets[i];
-			u32 end = locaTable.glyphOffsets[i + 1];
-
-			if (start == end)
-			{
-				glyphHeaderMsg << "  [" << i << "] empty glyph\n";
-				continue;
-			}
-
-			GlyphInfo gi = ReadGlyphHeader(
-				data,
-				glyphBase,
-				start);
-
-			glyphHeaderMsg << "  [" << i << "] contours: " << gi.numberOfContours
-				<< " bounds: (" << gi.xMin << ", " << gi.yMin << ", " << gi.xMax << ", " << gi.yMax << ")\n";
-		}
-
-		Log::Print(glyphHeaderMsg.str());
-	}
-}
-
-void ParseOTF(
-	const vector<u8>& data,
-	const OffsetTable& offsetTable,
-	const HeadTable& headTable,
-	const MaxpTable& maxpTable,
-	bool isVerbose)
-{
-
 }
 
 OffsetTable ReadOffsetTable(
@@ -345,11 +227,15 @@ OffsetTable ReadOffsetTable(
 	}
 
 	size_t offset{};
-	table.scalerType    = ReadU32(data, offset); offset += 4;
-	table.numTables     = ReadU16(data, offset); offset += 2;
-	table.searchRange   = ReadU16(data, offset); offset += 2;
-	table.entrySelector = ReadU16(data, offset); offset += 2;
-	table.rangeShift    = ReadU16(data, offset); offset += 2;
+
+	//test if numTables is valid
+	if (Parse::ReadU16(data, offset + 6) == 0) return {};
+
+	table.scalerType    = Parse::ReadU32(data, offset); offset += 4;
+	table.numTables     = Parse::ReadU16(data, offset); offset += 2;
+	table.searchRange   = Parse::ReadU16(data, offset); offset += 2;
+	table.entrySelector = Parse::ReadU16(data, offset); offset += 2;
+	table.rangeShift    = Parse::ReadU16(data, offset); offset += 2;
 
 	table.tables.reserve(table.numTables);
 
@@ -357,9 +243,9 @@ OffsetTable ReadOffsetTable(
 	{
 		TableRecord rec{};
 		memcpy(rec.tag, &data[offset], 4);
-		rec.checkSum = ReadU32(data, offset + 4);
-		rec.offset   = ReadU32(data, offset + 8);
-		rec.length   = ReadU32(data, offset + 12);
+		rec.checkSum = Parse::ReadU32(data, offset + 4);
+		rec.offset   = Parse::ReadU32(data, offset + 8);
+		rec.length   = Parse::ReadU32(data, offset + 12);
 
 		table.tables.push_back(rec);
 		offset += 16;
@@ -392,39 +278,31 @@ HeadTable ReadHeadTable(
 	u32 offset,
 	bool isVerbose)
 {
+	//test if magic number is valid
+	if (Parse::ReadU32(data, offset + 12) != MAGIC_NUMBER) return {};
+
 	HeadTable table{};
 	
-	table.majorVersion       = static_cast<i16>(ReadU16(data, offset));
-	table.minorVersion       = static_cast<i16>(ReadU16(data, offset + 2));
-	table.fontRevision       = static_cast<i32>(ReadU32(data, offset + 4));
-	table.checkSumAdjustment = ReadU32(data, offset + 8);
-	table.magicNumber        = ReadU32(data, offset + 12);
-	table.flags              = ReadU16(data, offset + 16);
-	table.unitsPerEm         = ReadU16(data, offset + 18);
-	table.created            = (static_cast<i64>(ReadU32(data, offset + 20)) << 32
-	                         | ReadU32(data, offset + 24));
-	table.modified           = (static_cast<i64>(ReadU32(data, offset + 28)) << 32
-	                         | ReadU32(data, offset + 32));
-	table.xMin               = static_cast<i16>(ReadU16(data, offset + 36));
-	table.yMin               = static_cast<i16>(ReadU16(data, offset + 38));
-	table.xMax               = static_cast<i16>(ReadU16(data, offset + 40));
-	table.yMax               = static_cast<i16>(ReadU16(data, offset + 42));
-	table.macStyle           = ReadU16(data, offset + 44);
-	table.lowestRecPPEM      = ReadU16(data, offset + 46);
-	table.fontDirectionHint  = static_cast<i16>(ReadU16(data, offset + 48));
-	table.indexToLocFormat   = static_cast<i16>(ReadU16(data, offset + 50));
-	table.glyphDataFormat    = static_cast<i16>(ReadU16(data, offset + 52));
-
-	if (table.magicNumber != 0x5F0F3CF5)
-	{
-		Log::Print(
-			"Failed to parse head table! Magic number is incorrect.",
-			"PARSE",
-			LogType::LOG_ERROR,
-			2);
-
-		return table;
-	}
+	table.majorVersion       = static_cast<i16>(Parse::ReadU16(data, offset));
+	table.minorVersion       = static_cast<i16>(Parse::ReadU16(data, offset + 2));
+	table.fontRevision       = static_cast<i32>(Parse::ReadU32(data, offset + 4));
+	table.checkSumAdjustment = Parse::ReadU32(data, offset + 8);
+	table.magicNumber        = Parse::ReadU32(data, offset + 12);
+	table.flags              = Parse::ReadU16(data, offset + 16);
+	table.unitsPerEm         = Parse::ReadU16(data, offset + 18);
+	table.created            = (static_cast<i64>(Parse::ReadU32(data, offset + 20)) << 32
+	                         | Parse::ReadU32(data, offset + 24));
+	table.modified           = (static_cast<i64>(Parse::ReadU32(data, offset + 28)) << 32
+	                         | Parse::ReadU32(data, offset + 32));
+	table.xMin               = static_cast<i16>(Parse::ReadU16(data, offset + 36));
+	table.yMin               = static_cast<i16>(Parse::ReadU16(data, offset + 38));
+	table.xMax               = static_cast<i16>(Parse::ReadU16(data, offset + 40));
+	table.yMax               = static_cast<i16>(Parse::ReadU16(data, offset + 42));
+	table.macStyle           = Parse::ReadU16(data, offset + 44);
+	table.lowestRecPPEM      = Parse::ReadU16(data, offset + 46);
+	table.fontDirectionHint  = static_cast<i16>(Parse::ReadU16(data, offset + 48));
+	table.indexToLocFormat   = static_cast<i16>(Parse::ReadU16(data, offset + 50));
+	table.glyphDataFormat    = static_cast<i16>(Parse::ReadU16(data, offset + 52));
 
 	if (isVerbose)
 	{
@@ -459,10 +337,13 @@ MaxpTable ReadMaxpTable(
 	u32 offset,
 	bool isVerbose)
 {
+	//test if numglyphs is valid
+	if (Parse::ReadU32(data, offset + 4) == 0) return {};
+
 	MaxpTable table{};
 
-	table.version = ReadU32(data, offset);
-	table.numGlyphs = ReadU16(data, offset + 4);
+	table.version = Parse::ReadU32(data, offset);
+	table.numGlyphs = Parse::ReadU16(data, offset + 4);
 
 	if (isVerbose)
 	{
@@ -476,68 +357,6 @@ MaxpTable ReadMaxpTable(
 	}
 
 	return table;
-}
-
-LocaTable ReadLocaTable(
-	const vector<u8>& data,
-	u32 offset,
-	u16 numGlyphs,
-	i16 indexToLocFormat,
-	bool isVerbose)
-{
-	LocaTable table{};
-
-	table.glyphOffsets.resize(numGlyphs + 1);
-
-	if (indexToLocFormat == 0)
-	{
-		for (u32 i = 0; i <= numGlyphs; ++i)
-		{
-			u16 val = ReadU16(data, offset + i * 2);
-			table.glyphOffsets[i] = static_cast<u32>(val) * 2;
-		}
-	}
-	else
-	{
-		for (u32 i = 0; i <= numGlyphs; ++i)
-		{
-			table.glyphOffsets[i] = ReadU32(data, offset + i * 4);
-		}
-	}
-
-	if (isVerbose)
-	{
-		ostringstream locaTableMsg{};
-
-		locaTableMsg << "Loca table data:\n"
-			<< "  glyph offsets count: " << table.glyphOffsets.size() << "\n"
-			<< "  First 10 offsets:\n";
-
-		for (size_t i = 0; i < min<size_t>(table.glyphOffsets.size(), 10); ++i)
-		{
-			locaTableMsg << "    [" << i << "]: " << table.glyphOffsets[i] << "\n";
-		}
-
-		Log::Print(locaTableMsg.str());
-	}
-
-	return table;
-}
-
-GlyphInfo ReadGlyphHeader(
-	const vector<u8>& data,
-	u32 glyfOffset,
-	u32 glyfStart)
-{
-	GlyphInfo gi{};
-
-	gi.numberOfContours = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart));
-	gi.xMin             = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 2));
-	gi.yMin             = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 4));
-	gi.xMax             = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 6));
-	gi.yMax             = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 8));
-
-	return gi;
 }
 
 bool ParsePreCheck(const vector<string>& params)
@@ -621,7 +440,7 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	thisVersion = ReadU32(versionData, offset);
+	thisVersion = Parse::ReadU32(versionData, offset);
 
 	if (path(correctFontPath).extension() == ".ttf"
 		&& thisVersion != TTF_VERSION)

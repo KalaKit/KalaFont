@@ -15,7 +15,7 @@
 
 #include "core.hpp"
 #include "command.hpp"
-#include "parser.hpp"
+#include "parse.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
@@ -27,7 +27,7 @@ using KalaHeaders::ListDirectoryContents;
 using KalaFont::Core;
 using KalaFont::Command;
 using KalaFont::CommandManager;
-using KalaFont::Parser;
+using KalaFont::Parse;
 
 using std::cin;
 using std::getline;
@@ -205,21 +205,21 @@ void AddKalaFontCommands()
 		.primary = { "parse", "p" },
 		.description = parseMsg.str(),
 		.paramCount = 3,
-		.targetFunction = Parser::ParseFont
+		.targetFunction = Parse::ParseFont
 	};
 	Command cmd_verbose_parse
 	{
 		.primary = { "vparse", "vp" },
 		.description = verboseParseMsg.str(),
 		.paramCount = 3,
-		.targetFunction = Parser::VerboseParseFont
+		.targetFunction = Parse::VerboseParseFont
 	};
 	Command cmd_get
 	{
 		.primary = { "get" },
 		.description = "Displays info about a parsed kfont file. Second parameter must be a valid path to a parsed kfont file.",
 		.paramCount = 2,
-		.targetFunction = Parser::GetKFontInfo
+		.targetFunction = Parse::GetKFontInfo
 	};
 
 	CommandManager::AddCommand(cmd_parse);
