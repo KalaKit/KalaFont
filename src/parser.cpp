@@ -144,19 +144,21 @@ static HeadTable ReadHeadTable(
 	bool isVerbose);
 static MaxpTable ReadMaxpTable(
 	const vector<u8>& data, 
-	u32 offset);
+	u32 offset,
+	bool isVerbose);
 static LocaTable ReadLocaTable(
 	const vector<u8>& data, 
 	u32 offset, 
 	u16 numGlyphs, 
-	i16 indexToLocFormat);
+	i16 indexToLocFormat,
+	bool isVerbose);
 static GlyphInfo ReadGlyphHeader(
 	const vector<u8>& data,
 	u32 glyfOffset,
 	u32 glyfStart);
 
-static void ParsePreCheck(const vector<string>& params);
-static void GetPreCheck(const vector<string>& params);
+static bool ParsePreCheck(const vector<string>& params);
+static bool GetPreCheck(const vector<string>& params);
 
 namespace KalaFont
 {
@@ -206,6 +208,8 @@ void Parse(
 		headIt->offset,
 		isVerbose);
 
+	if (headTable.created = 0) return;
+
 	//
 	// MAXP TABLE
 	//
@@ -213,18 +217,10 @@ void Parse(
 	auto maxpIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
 		[](const TableRecord& t) { return string(t.tag, 4) == "maxp"; });
 
-	MaxpTable maxpTable = ReadMaxpTable(data, maxpIt->offset);
-
-	if (isVerbose)
-	{
-		ostringstream maxpTableMsg{};
-
-		maxpTableMsg << "Maxp table data:\n"
-			<< "  version:   0x" << hex << maxpTable.version << dec << "\n"
-			<< "  numGlyphs: " << maxpTable.numGlyphs << "\n";
-
-		Log::Print(maxpTableMsg.str());
-	}
+	MaxpTable maxpTable = ReadMaxpTable(
+		data, 
+		maxpIt->offset,
+		isVerbose);
 
 	if (thisVersion == TTF_VERSION)
 	{
@@ -273,23 +269,8 @@ void ParseTTF(
 		data,
 		locaIt->offset,
 		maxpTable.numGlyphs,
-		headTable.indexToLocFormat);
-
-	if (isVerbose)
-	{
-		ostringstream locaTableMsg{};
-
-		locaTableMsg << "Loca table data:\n"
-			<< "  glyph offsets count: " << locaTable.glyphOffsets.size() << "\n"
-			<< "  First 10 offsets:\n";
-
-		for (size_t i = 0; i < min<size_t>(locaTable.glyphOffsets.size(), 10); ++i)
-		{
-			locaTableMsg << "    [" << i << "]: " << locaTable.glyphOffsets[i] << "\n";
-		}
-
-		Log::Print(locaTableMsg.str());
-	}
+		headTable.indexToLocFormat,
+		isVerbose);
 
 	//
 	// GLYPH HEADER
@@ -360,7 +341,7 @@ OffsetTable ReadOffsetTable(
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return table;
 	}
 
 	size_t offset{};
@@ -442,7 +423,7 @@ HeadTable ReadHeadTable(
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return table;
 	}
 
 	if (isVerbose)
@@ -475,12 +456,24 @@ HeadTable ReadHeadTable(
 
 MaxpTable ReadMaxpTable(
 	const vector<u8>& data, 
-	u32 offset)
+	u32 offset,
+	bool isVerbose)
 {
 	MaxpTable table{};
 
 	table.version = ReadU32(data, offset);
 	table.numGlyphs = ReadU16(data, offset + 4);
+
+	if (isVerbose)
+	{
+		ostringstream maxpTableMsg{};
+
+		maxpTableMsg << "Maxp table data:\n"
+			<< "  version:   0x" << hex << table.version << dec << "\n"
+			<< "  numGlyphs: " << table.numGlyphs << "\n";
+
+		Log::Print(maxpTableMsg.str());
+	}
 
 	return table;
 }
@@ -489,7 +482,8 @@ LocaTable ReadLocaTable(
 	const vector<u8>& data,
 	u32 offset,
 	u16 numGlyphs,
-	i16 indexToLocFormat)
+	i16 indexToLocFormat,
+	bool isVerbose)
 {
 	LocaTable table{};
 
@@ -511,6 +505,22 @@ LocaTable ReadLocaTable(
 		}
 	}
 
+	if (isVerbose)
+	{
+		ostringstream locaTableMsg{};
+
+		locaTableMsg << "Loca table data:\n"
+			<< "  glyph offsets count: " << table.glyphOffsets.size() << "\n"
+			<< "  First 10 offsets:\n";
+
+		for (size_t i = 0; i < min<size_t>(table.glyphOffsets.size(), 10); ++i)
+		{
+			locaTableMsg << "    [" << i << "]: " << table.glyphOffsets[i] << "\n";
+		}
+
+		Log::Print(locaTableMsg.str());
+	}
+
 	return table;
 }
 
@@ -530,7 +540,7 @@ GlyphInfo ReadGlyphHeader(
 	return gi;
 }
 
-void ParsePreCheck(const vector<string>& params)
+bool ParsePreCheck(const vector<string>& params)
 {
 	path fontPath = path(params[1]);
 	path kfontPath = path(params[2]);
@@ -547,7 +557,7 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 	if (exists(correctKFontPath))
 	{
@@ -557,7 +567,7 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	if (!is_regular_file(correctFontPath))
@@ -568,7 +578,7 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	if (!path(correctFontPath).has_extension()
@@ -581,7 +591,7 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	if (!path(correctKFontPath).has_extension()
@@ -593,7 +603,7 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	size_t offset{};
@@ -608,7 +618,7 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	thisVersion = ReadU32(versionData, offset);
@@ -622,7 +632,7 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	if (path(correctFontPath).extension() == ".otf"
@@ -635,11 +645,13 @@ void ParsePreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
+
+	return true;
 }
 
-void GetPreCheck(const vector<string>& params)
+bool GetPreCheck(const vector<string>& params)
 {
 	path fontPath = path(params[1]);
 
@@ -654,7 +666,7 @@ void GetPreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	if (!is_regular_file(correctFontPath))
@@ -665,7 +677,7 @@ void GetPreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
 
 	if (!path(correctFontPath).has_extension()
@@ -677,6 +689,8 @@ void GetPreCheck(const vector<string>& params)
 			LogType::LOG_ERROR,
 			2);
 
-		CommandManager::ParseCommand({ "--e" });
+		return false;
 	}
+
+	return true;
 }

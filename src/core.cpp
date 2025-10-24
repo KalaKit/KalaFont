@@ -207,7 +207,7 @@ void AddKalaFontCommands()
 		.paramCount = 3,
 		.targetFunction = Parser::ParseFont
 	};
-	Command cmd_quick_parse
+	Command cmd_verbose_parse
 	{
 		.primary = { "vparse", "vp" },
 		.description = verboseParseMsg.str(),
@@ -223,7 +223,7 @@ void AddKalaFontCommands()
 	};
 
 	CommandManager::AddCommand(cmd_parse);
-	CommandManager::AddCommand(cmd_quick_parse);
+	CommandManager::AddCommand(cmd_verbose_parse);
 	CommandManager::AddCommand(cmd_get);
 }
 
