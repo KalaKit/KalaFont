@@ -20,6 +20,9 @@ using KalaFont::OffsetTable;
 using KalaFont::TableRecord;
 using KalaFont::HeadTable;
 using KalaFont::MaxpTable;
+using KalaFont::GlyphInfo;
+using KalaFont::GlyphPoint;
+using KalaFont::GlyphContours;
 
 using std::vector;
 using std::string;
@@ -31,28 +34,7 @@ struct LocaTable
 	vector<u32> glyphOffsets{};
 };
 
-struct GlyphInfo
-{
-	i16 numberOfContours{};
-	i16 xMin{};
-	i16 yMin{};
-	i16 xMax{};
-	i16 yMax{};
-};
-
-struct GlyphPoint
-{
-	i16 x{};
-	i16 y{};
-	bool onCurve{};
-};
-
-struct GlyphContours
-{
-	vector<vector<GlyphPoint>> contours{};
-};
-
-enum GlyphFlags : u8
+enum SimpleGlyphFlags : u8
 {
 	GLYPH_ON_CURVE_POINT      = 0x01,
 	GLYPH_X_SHORT_SECTOR      = 0x02,
@@ -60,6 +42,17 @@ enum GlyphFlags : u8
 	GLYPH_REPEAT_FLAG         = 0x08,
 	GLYPH_X_SAME_OR_POS_SHORT = 0x10,
 	GLYPH_Y_SAME_OR_POS_SHORT = 0x20
+};
+enum CompositeGlyphFlags : u16
+{
+	GLYPH_ARG_1_AND_2_ARE_WORDS    = 0x0001, //else bytes
+	GLYPH_ARGS_ARE_XY_VALUES       = 0x0002, //else point indices
+	GLYPH_ROUND_XY_TO_GRID         = 0x0004,
+	GLYPH_WE_HAVE_A_SCALE          = 0x0008,
+	GLYPH_MORE_COMPONENTS          = 0x0020,
+	GLYPH_WE_HAVE_AN_X_AND_Y_SCALE = 0x0040,
+	GLYPH_WE_HAVE_A_TWO_BY_TWO     = 0x0080,
+	GLYPH_WE_HAVE_INSTRUCTIONS     = 0x0100
 };
 
 static LocaTable ReadLocaTable(

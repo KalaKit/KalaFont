@@ -20,6 +20,9 @@ using KalaFont::OffsetTable;
 using KalaFont::TableRecord;
 using KalaFont::HeadTable;
 using KalaFont::MaxpTable;
+using KalaFont::GlyphInfo;
+using KalaFont::GlyphPoint;
+using KalaFont::GlyphContours;
 
 using std::vector;
 using std::string;

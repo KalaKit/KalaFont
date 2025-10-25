@@ -9,6 +9,7 @@
 #include <string>
 
 #include "KalaHeaders/core_utils.hpp"
+#include "KalaHeaders/math_utils.hpp"
 
 namespace KalaFont
 {
@@ -59,6 +60,61 @@ namespace KalaFont
 	{
 		u32 version{};
 		u16 numGlyphs{};
+	};
+
+	struct GlyphInfo
+	{
+		i16 numberOfContours{};
+		i16 xMin{};
+		i16 yMin{};
+		i16 xMax{};
+		i16 yMax{};
+	};
+
+	struct GlyphPoint
+	{
+		i16 x{};
+		i16 y{};
+		bool onCurve{};
+	};
+
+	struct GlyphContours
+	{
+		vector<vector<GlyphPoint>> contours{};
+	};
+
+	struct GlyphAnchor
+	{
+		
+	};
+
+	struct GlyphTransform
+	{
+
+	};
+
+	struct GlyphResult
+	{
+		GlyphContours contours{};
+		GlyphAnchor anchor{};
+		GlyphTransform transform{};
+		u32 glyphIndex{};
+		i16 advanceWidth{};
+		i16 leftSideBearing{};
+	};
+
+	struct TriangulatedData
+	{
+		vector<f32> vertices{};
+		vector<u32> indices{};
+		u32 vertexCount{};
+		u32 indexCount{};
+	};
+
+	struct ParsedData
+	{
+		vector<GlyphResult> glyphs{};
+		TriangulatedData meshData{};
 	};
 
 	class Parse
