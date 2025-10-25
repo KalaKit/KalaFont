@@ -50,7 +50,6 @@ struct GlyphPoint
 struct GlyphContours
 {
 	vector<vector<GlyphPoint>> contours{};
-	bool isComposite{};
 };
 
 enum GlyphFlags : u8
@@ -77,6 +76,14 @@ static GlyphInfo ReadGlyphHeader(
 
 static GlyphContours ParseSimpleGlyph(
 	const vector<u8>& data,
+	GlyphInfo header,
+	u32 glyfBase,
+	u32 start,
+	u32 end);
+
+static GlyphContours ParseCompositeGlyph(
+	const vector<u8>& data,
+	GlyphInfo header,
 	u32 glyfBase,
 	u32 start,
 	u32 end);
@@ -153,7 +160,7 @@ namespace KalaFont
 		}
 
 		//
-		// SIMPLE GLYPH
+		// SIMPLE AND COMPOSITE GLYPH
 		//
 
 		const u32 glyfBase = glyfIt->offset;
@@ -165,36 +172,43 @@ namespace KalaFont
 
 			if (start == end) continue; //empty
 
-			GlyphContours glyphTable = ParseSimpleGlyph(
-				data,
-				glyfBase,
-				start,
-				end);
+			GlyphInfo header = ReadGlyphHeader(
+				data, 
+				glyfBase, 
+				start);
 
-			if (glyphTable.isComposite)
-			{
-				//TODO: handle composites here
-
-				continue;
-			}
+			GlyphContours glyphData =
+				(header.numberOfContours < 0)
+				? ParseCompositeGlyph(
+					data,
+					header,
+					glyfBase,
+					start,
+					end)
+				: ParseSimpleGlyph(
+					data,
+					header,
+					glyfBase,
+					start,
+					end);
 
 			if (isVerbose
-				&& !glyphTable.contours.empty())
+				&& !glyphData.contours.empty())
 			{
-				const auto& c0 = glyphTable.contours[0];
+				const auto& c0 = glyphData.contours[0];
 
-				ostringstream simpleGlyfMsg;
+				ostringstream glyfMsg;
 
-				simpleGlyfMsg << "Glyph '" << gi << "' contours: " << glyphTable.contours.size()
+				glyfMsg << "Glyph '" << gi << "' contours: " << glyphData.contours.size()
 					<< ", first contour points: " << c0.size();
 
 				if (!c0.empty())
 				{
-					simpleGlyfMsg << "  p0: (" << c0[0].x << ", " << c0[0].y
+					glyfMsg << "  p0: (" << c0[0].x << ", " << c0[0].y
 						<< ") on: " << c0[0].onCurve;
 				}
 
-				Log::Print(simpleGlyfMsg.str());
+				Log::Print(glyfMsg.str());
 			}
 		}
 
@@ -266,45 +280,163 @@ GlyphInfo ReadGlyphHeader(
 
 GlyphContours ParseSimpleGlyph(
 	const vector<u8>& data,
+	GlyphInfo header,
 	u32 glyfBase,
 	u32 start,
 	u32 end)
 {
 	GlyphContours contours{};
 
-	if (start == end) return contours; //empty glyph
-
-	size_t offset = size_t(glyfBase) + size_t(start);
+	size_t p = size_t(glyfBase) + size_t(start) + 10;
 	const size_t pend = size_t(glyfBase) + size_t(end);
 
-	i16 numberOfContours = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
-	i16 xMin             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
-	i16 yMin             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
-	i16 xMax             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
-	i16 yMax             = static_cast<i16>(Parse::ReadU16(data, offset)); offset += 2;
-
-	//composite glyph
-	if (numberOfContours < 0)
+	//endPtsOfContours
+	vector<u16> endPts(header.numberOfContours);
+	for (int i = 0; i < header.numberOfContours; ++i)
 	{
-		contours.isComposite = true;
-		return contours;
+		endPts[i] = Parse::ReadU16(data, p);
+		p += 2;
 	}
 
-	//simple glyph with no contours
-	if (numberOfContours == 0) return contours;
+	//
+	// IGNORE INSTRUCTIONS
+	//
 
-	vector<u16> endPtsOfContours(numberOfContours);
-	for (int i = 0; i < numberOfContours; ++i)
-	{
-		endPtsOfContours[i] = Parse::ReadU16(data, offset);
-		offset += 2;
-	}
+	u16 instructionsLength = Parse::ReadU16(data, p); p += 2;
+	p += instructionsLength;
 
-	u16 instructionsLength = Parse::ReadU16(data, offset); offset += 2;
-	offset += instructionsLength; //ignore instructions
+	//
+	// TOTAL POINTS
+	//
 
-	const size_t pointCount = size_t(endPtsOfContours.back()) + 1;
+	const size_t pointCount = size_t(endPts.back()) + 1;
 	if (pointCount == 0) return contours;
+
+	//
+	// READ FLAGS
+	//
+
+	vector<u8> flags{};
+	flags.reserve(pointCount);
+
+	while (flags.size() < pointCount)
+	{
+		u8 f = Parse::ReadU8(data, p++);
+		flags.push_back(f);
+
+		if (f & GLYPH_REPEAT_FLAG)
+		{
+			u8 count = Parse::ReadU8(data, p++);
+			flags.insert(flags.end(), count, f);
+		}
+	}
+
+	//
+	// READ X COORDINATES
+	//
+
+	vector<i16> xs(pointCount);
+	{
+		int x{};
+		for (size_t i = 0; i < pointCount; ++i)
+		{
+			u8 f = flags[i];
+			int dx{};
+
+			if (f & GLYPH_X_SHORT_SECTOR)
+			{
+				u8 b = Parse::ReadU8(data, p++);
+				dx = (f & GLYPH_X_SAME_OR_POS_SHORT) ? int(b) : -int(b);
+			}
+			else
+			{
+				if (f & GLYPH_X_SAME_OR_POS_SHORT) dx = 0;
+				else dx = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			}
+
+			x += dx;
+			xs[i] = static_cast<i16>(x);
+		}
+	}
+
+	//
+	// READ Y COORDINATES
+	//
+
+	vector<i16> ys(pointCount);
+	{
+		int y{};
+		for (size_t i = 0; i < pointCount; ++i)
+		{
+			u8 f = flags[i];
+			int dy{};
+
+			if (f & GLYPH_Y_SHORT_SECTOR)
+			{
+				u8 b = Parse::ReadU8(data, p++);
+				dy = (f & GLYPH_Y_SAME_OR_POS_SHORT) ? int(b) : -int(b);
+			}
+			else
+			{
+				if (f & GLYPH_Y_SAME_OR_POS_SHORT) dy = 0;
+				else dy = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			}
+
+			y += dy;
+			ys[i] = static_cast<i16>(y);
+		}
+	}
+
+	//
+	// BUILD POINT LIST
+	//
+
+	vector<GlyphPoint> pts(pointCount);
+	for (size_t i = 0; i < pointCount; ++i)
+	{
+		pts[i] = GlyphPoint
+		{
+			xs[i], ys[i],
+			(flags[i] & GLYPH_ON_CURVE_POINT) != 0
+		};
+	}
+
+	//
+	// SPLIT INTO CONTOURS USING END PTS
+	//
+
+	contours.contours.reserve(header.numberOfContours);
+	size_t startIndex{};
+
+	for (int c = 0; c < header.numberOfContours; ++c)
+	{
+		size_t endIndex = size_t(endPts[c]);
+		vector<GlyphPoint> contour{};
+		contour.reserve(endIndex + 1 - startIndex);
+
+		for (size_t i = startIndex; i <= endIndex; ++i)
+		{
+			contour.push_back(pts[i]);
+		}
+
+		contours.contours.push_back(move(contour));
+		startIndex = endIndex + 1;
+	}
+
+	return contours;
+}
+
+GlyphContours ParseCompositeGlyph(
+	const vector<u8>& data,
+	GlyphInfo header,
+	u32 glyfBase,
+	u32 start,
+	u32 end)
+{
+	GlyphContours contours{};
+
+	size_t p = size_t(glyfBase) + size_t(start) + 10;
+	const size_t pend = size_t(glyfBase) + size_t(end);
 
 	return contours;
 }
