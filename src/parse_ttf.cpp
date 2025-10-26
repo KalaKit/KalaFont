@@ -206,6 +206,9 @@ namespace KalaFont
 
 		ParsedData parsedData{};
 
+		ostringstream metricsMsg{};
+		metricsMsg << "First 10 glyphs:\n";
+
 		const u32 glyfBase = glyfIt->offset;
 
 		for (u32 gi = 0; gi < maxpTable.numGlyphs; ++gi)
@@ -252,8 +255,22 @@ namespace KalaFont
 
 			result.anchor = { static_cast<f32>(result.leftSideBearing), 0.0f };
 
+			if (isVerbose
+				&& result.glyphIndex < 11)
+			{
+				metricsMsg << "Glyph[" << result.glyphIndex << "]\n"
+					<< "  advance width:     " << result.advanceWidth << "\n"
+					<< "  left side bearing: " << result.leftSideBearing << "\n"
+					<< "  anchor:            (" << result.anchor.x << ", " << result.anchor.y << ")\n"
+					<< "  transform:\n"
+					<< "    [" << result.transform.m00 << ", " << result.transform.m01 << "]\n"
+					<< "    [" << result.transform.m10 << ", " << result.transform.m11 << "]\n";
+			}
+
 			parsedData.glyphs.push_back(move(result));
 		}
+
+		Log::Print(metricsMsg.str());
 
 		return true;
 	}
