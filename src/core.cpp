@@ -204,14 +204,14 @@ void AddKalaFontCommands()
 	{
 		.primary = { "parse", "p" },
 		.description = parseMsg.str(),
-		.paramCount = 3,
+		.paramCount = 4,
 		.targetFunction = Parse::ParseFont
 	};
 	Command cmd_verbose_parse
 	{
 		.primary = { "vparse", "vp" },
 		.description = verboseParseMsg.str(),
-		.paramCount = 3,
+		.paramCount = 4,
 		.targetFunction = Parse::VerboseParseFont
 	};
 	Command cmd_get

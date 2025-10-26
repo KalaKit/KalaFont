@@ -28,7 +28,7 @@ using std::ostringstream;
 
 namespace KalaFont
 {
-	bool Parse_OTF::Parse(
+	ParsedData Parse_OTF::Parse(
 		const vector<u8>& data,
 		const OffsetTable& offsetTable,
 		const HeadTable& headTable,
@@ -36,6 +36,8 @@ namespace KalaFont
 		const vector<HmtxEntry>& hMetrics,
 		bool isVerbose)
 	{
-		return false;
+		ParsedData parsedData{};
+
+		return parsedData;
 	}
 }

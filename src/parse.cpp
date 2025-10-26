@@ -28,6 +28,8 @@ using KalaFont::TableRecord;
 using KalaFont::HeadTable;
 using KalaFont::HheaTable;
 using KalaFont::HmtxEntry;
+using KalaFont::ParsedData;
+using KalaFont::GeometryType;
 using KalaFont::Parse_TTF;
 using KalaFont::Parse_OTF;
 
@@ -71,6 +73,12 @@ static vector<HmtxEntry> ReadHmtx(
 	u32 offset,
 	u16 count);
 
+//Generate SDF quads
+static bool GenerateBase(ParsedData& parsedData);
+
+//Generate triangulated mesh
+static bool GenerateFull(ParsedData& parsedData);
+
 static bool ParsePreCheck(const vector<string>& params);
 static bool GetPreCheck(const vector<string>& params);
 
@@ -95,7 +103,11 @@ void ParseAny(
 	const vector<string>& params,
 	bool isVerbose)
 {
-	ParsePreCheck(params);
+	if (!ParsePreCheck(params)) return;
+
+	GeometryType geometryType = params[1] == "base"
+		? GeometryType::GEO_BASE
+		: GeometryType::GEO_FULL;
 
 	//
 	// OFFSET TABLE
@@ -104,7 +116,7 @@ void ParseAny(
 	vector<u8> data{};
 
 	OffsetTable offsetTable = ReadOffsetTable(
-		params[1], 
+		params[2], 
 		data,
 		isVerbose);
 
@@ -165,10 +177,11 @@ void ParseAny(
 	// PARSE OTF/TTF
 	//
 
-	bool success{};
+	ParsedData parsedData{};
+
 	if (thisVersion == TTF_VERSION)
 	{
-		success = Parse_TTF::Parse(
+		parsedData = Parse_TTF::Parse(
 			data, 
 			offsetTable, 
 			headTable,
@@ -178,7 +191,7 @@ void ParseAny(
 	}
 	else
 	{
-		success = Parse_OTF::Parse(
+		parsedData = Parse_OTF::Parse(
 			data,
 			offsetTable,
 			headTable,
@@ -191,10 +204,25 @@ void ParseAny(
 		? "TTF"
 		: "OTF";
 
-	if (!success)
+	if (parsedData.glyphs.empty())
 	{
 		Log::Print(
 			"Failed to parse " + fontType + " font!",
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		return;
+	}
+
+	bool geometryResult = geometryType == GeometryType::GEO_BASE
+		? GenerateBase(parsedData)
+		: GenerateFull(parsedData);
+
+	if (!geometryResult)
+	{
+		Log::Print(
+			"Failed to generate geometry for font " + fontType + "!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -367,10 +395,32 @@ vector<HmtxEntry> ReadHmtx(
 	return v;
 }
 
+bool GenerateBase(ParsedData& parsedData)
+{
+	return true;
+}
+
+bool GenerateFull(ParsedData& parsedData)
+{
+	return true;
+}
+
 bool ParsePreCheck(const vector<string>& params)
 {
-	path fontPath = path(params[1]);
-	path kfontPath = path(params[2]);
+	if (params[1] != "base"
+		&& params[1] != "full")
+	{
+		Log::Print(
+			"Cannot parse to kfont because the geometry type was incorrect!",
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		return false;
+	}
+
+	path fontPath = path(params[2]);
+	path kfontPath = path(params[3]);
 
 	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
 	path correctFontPath = weakly_canonical(Core::currentDir / fontPath);

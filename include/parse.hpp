@@ -108,6 +108,15 @@ namespace KalaFont
 		vector<u32> indices{};
 	};
 
+	enum class GeometryType
+	{
+		//SDF - one quad per mesh
+		GEO_BASE,
+
+		//triangulated - full outline mesh
+		GEO_FULL
+	};
+
 	class Parse
 	{
 	public:

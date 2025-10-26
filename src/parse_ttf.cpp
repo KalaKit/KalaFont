@@ -107,7 +107,7 @@ static GlyphContours ParseCompositeGlyph(
 
 namespace KalaFont
 {
-	bool Parse_TTF::Parse(
+	ParsedData Parse_TTF::Parse(
 		const vector<u8>& data,
 		const OffsetTable& offsetTable,
 		const HeadTable& headTable,
@@ -135,7 +135,7 @@ namespace KalaFont
 				LogType::LOG_ERROR,
 				2);
 
-			return false;
+			return{};
 		}
 
 		//
@@ -160,7 +160,7 @@ namespace KalaFont
 				LogType::LOG_ERROR,
 				2);
 
-			return false;
+			return{};
 		}
 
 		//
@@ -270,9 +270,9 @@ namespace KalaFont
 			parsedData.glyphs.push_back(move(result));
 		}
 
-		Log::Print(metricsMsg.str());
+		if (isVerbose) Log::Print(metricsMsg.str());
 
-		return true;
+		return parsedData;
 	}
 }
 
