@@ -16,13 +16,12 @@
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
 using KalaHeaders::kvec2;
+using KalaHeaders::kmat2;
 
 using KalaFont::Parse;
 using KalaFont::OffsetTable;
 using KalaFont::TableRecord;
 using KalaFont::HeadTable;
-using KalaFont::MaxpTable;
-using KalaFont::GlyphInfo;
 using KalaFont::GlyphPoint;
 using KalaFont::GlyphContours;
 
@@ -30,10 +29,28 @@ using std::vector;
 using std::string;
 using std::ostringstream;
 using std::min;
+using std::hex;
+using std::dec;
+using std::move;
+
+struct MaxpTable
+{
+	u32 version{};
+	u16 numGlyphs{};
+};
 
 struct LocaTable
 {
 	vector<u32> glyphOffsets{};
+};
+
+struct GlyphInfo
+{
+	i16 numberOfContours{};
+	i16 xMin{};
+	i16 yMin{};
+	i16 xMax{};
+	i16 yMax{};
 };
 
 enum SimpleGlyphFlags : u8
@@ -57,6 +74,11 @@ enum CompositeGlyphFlags : u16
 	GLYPH_WE_HAVE_INSTRUCTIONS     = 0x0100
 };
 
+static MaxpTable ReadMaxpTable(
+	const vector<u8>& data,
+	u32 offset,
+	bool isVerbose);
+
 static LocaTable ReadLocaTable(
 	const vector<u8>& data,
 	u32 offset,
@@ -71,14 +93,14 @@ static GlyphInfo ReadGlyphHeader(
 
 static GlyphContours ParseSimpleGlyph(
 	const vector<u8>& data,
-	GlyphInfo header,
+	const GlyphInfo& header,
 	u32 glyfBase,
 	u32 start,
 	u32 end);
 
 static GlyphContours ParseCompositeGlyph(
 	const vector<u8>& data,
-	GlyphInfo header,
+	const LocaTable& locaTable,
 	u32 glyfBase,
 	u32 start,
 	u32 end);
@@ -89,9 +111,33 @@ namespace KalaFont
 		const vector<u8>& data,
 		const OffsetTable& offsetTable,
 		const HeadTable& headTable,
-		const MaxpTable& maxpTable,
+		const HheaTable& hheaTable,
+		const vector<HmtxEntry>& hMetrics,
 		bool isVerbose)
 	{
+		//
+		// MAXP TABLE
+		//
+
+		auto maxpIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
+			[](const TableRecord& t) { return string(t.tag, 4) == "maxp"; });
+
+		MaxpTable maxpTable = ReadMaxpTable(
+			data,
+			maxpIt->offset,
+			isVerbose);
+
+		if (maxpTable.numGlyphs == 0)
+		{
+			Log::Print(
+				"Failed to parse font because it had invalid maxp table data!",
+				"PARSE_TTF",
+				LogType::LOG_ERROR,
+				2);
+
+			return false;
+		}
+
 		//
 		// LOCA TABLE
 		//
@@ -158,6 +204,8 @@ namespace KalaFont
 		// SIMPLE AND COMPOSITE GLYPH
 		//
 
+		ParsedData parsedData{};
+
 		const u32 glyfBase = glyfIt->offset;
 
 		for (u32 gi = 0; gi < maxpTable.numGlyphs; ++gi)
@@ -176,7 +224,7 @@ namespace KalaFont
 				(header.numberOfContours < 0)
 				? ParseCompositeGlyph(
 					data,
-					header,
+					locaTable,
 					glyfBase,
 					start,
 					end)
@@ -187,28 +235,55 @@ namespace KalaFont
 					start,
 					end);
 
-			if (isVerbose
-				&& !glyphData.contours.empty())
+			GlyphResult result{};
+			result.glyphIndex = gi;
+			result.contours = glyphData;
+
+			if (gi < hMetrics.size())
 			{
-				const auto& c0 = glyphData.contours[0];
-
-				ostringstream glyfMsg;
-
-				glyfMsg << "Glyph '" << gi << "' contours: " << glyphData.contours.size()
-					<< ", first contour points: " << c0.size();
-
-				if (!c0.empty())
-				{
-					glyfMsg << "  p0: (" << c0[0].size.x << ", " << c0[0].size.y
-						<< ") on: " << c0[0].onCurve;
-				}
-
-				Log::Print(glyfMsg.str());
+				result.advanceWidth = hMetrics[gi].advanceWidth;
+				result.leftSideBearing = hMetrics[gi].leftSideBearing;
 			}
+			else
+			{
+				result.advanceWidth = hMetrics.back().advanceWidth;
+				result.leftSideBearing = hMetrics.back().leftSideBearing;
+			}
+
+			result.anchor = { static_cast<f32>(result.leftSideBearing), 0.0f };
+
+			parsedData.glyphs.push_back(move(result));
 		}
 
 		return true;
 	}
+}
+
+MaxpTable ReadMaxpTable(
+	const vector<u8>& data,
+	u32 offset,
+	bool isVerbose)
+{
+	//test if numglyphs is valid
+	if (Parse::ReadU32(data, offset + 4) == 0) return {};
+
+	MaxpTable table{};
+
+	table.version = Parse::ReadU32(data, offset);
+	table.numGlyphs = Parse::ReadU16(data, offset + 4);
+
+	if (isVerbose)
+	{
+		ostringstream maxpTableMsg{};
+
+		maxpTableMsg << "Maxp table data:\n"
+			<< "  version:   0x" << hex << table.version << dec << "\n"
+			<< "  numGlyphs: " << table.numGlyphs << "\n";
+
+		Log::Print(maxpTableMsg.str());
+	}
+
+	return table;
 }
 
 LocaTable ReadLocaTable(
@@ -275,7 +350,7 @@ GlyphInfo ReadGlyphHeader(
 
 GlyphContours ParseSimpleGlyph(
 	const vector<u8>& data,
-	GlyphInfo header,
+	const GlyphInfo& header,
 	u32 glyfBase,
 	u32 start,
 	u32 end)
@@ -423,7 +498,7 @@ GlyphContours ParseSimpleGlyph(
 
 GlyphContours ParseCompositeGlyph(
 	const vector<u8>& data,
-	GlyphInfo header,
+	const LocaTable& locaTable,
 	u32 glyfBase,
 	u32 start,
 	u32 end)
@@ -432,6 +507,136 @@ GlyphContours ParseCompositeGlyph(
 
 	size_t p = size_t(glyfBase) + size_t(start) + 10;
 	const size_t pend = size_t(glyfBase) + size_t(end);
+
+	struct Component
+	{
+		u16 glyphIndex{};
+		kvec2 args{};
+		kmat2 transform
+		{
+			1.0f, 0.0f,
+			0.0f, 1.0f
+		};
+	};
+
+	vector<Component> components{};
+
+	u16 lastFlags{};
+	bool more = true;
+
+	while (more && p + 4 <= pend)
+	{
+		u16 flags = Parse::ReadU16(data, p); p += 2;
+		u16 glyphIndex = Parse::ReadU16(data, p); p += 2;
+		lastFlags = flags;
+
+		Component comp{};
+		comp.glyphIndex = glyphIndex;
+
+		//read arguments
+		if (flags & GLYPH_ARG_1_AND_2_ARE_WORDS)
+		{
+			comp.args.x = Parse::ReadU16(data, p); p += 2;
+			comp.args.y = Parse::ReadU16(data, p); p += 2;
+		}
+		else
+		{
+			comp.args.x = Parse::ReadU16(data, p); p ++;
+			comp.args.y = Parse::ReadU16(data, p); p ++;
+		}
+
+		//interpret args as XY if flagged
+		if (!(flags & GLYPH_ARGS_ARE_XY_VALUES))
+		{
+			//these are point indices - skip for now
+		}
+
+		//handle transform
+
+		if (flags & GLYPH_WE_HAVE_A_SCALE)
+		{
+			i16 val = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			comp.transform.m00 = comp.transform.m11 = val / 16384.0f;
+		}
+		else if (flags & GLYPH_WE_HAVE_AN_X_AND_Y_SCALE)
+		{
+			i16 xScale = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			i16 yScale = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			comp.transform.m00 = xScale / 16384.0f;
+			comp.transform.m11 = yScale / 16384.0f;
+		}
+		else if (flags & GLYPH_WE_HAVE_A_TWO_BY_TWO)
+		{
+			i16 m00 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			i16 m01 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			i16 m10 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			i16 m11 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			comp.transform.m00 = m00 / 16384.0f;
+			comp.transform.m01 = m01 / 16384.0f;
+			comp.transform.m10 = m10 / 16384.0f;
+			comp.transform.m11 = m11 / 16384.0f;
+		}
+
+		components.push_back(comp);
+		more = (flags & GLYPH_MORE_COMPONENTS);
+	}
+
+	//skip instructions
+	if (lastFlags & GLYPH_WE_HAVE_INSTRUCTIONS)
+	{
+		u16 len = Parse::ReadU16(data, p);
+		p += 2 + len;
+	}
+
+	//load and transform each components contours
+	for (const Component& comp : components)
+	{
+		//get this components start/end from loca
+		if (comp.glyphIndex + 1 >= locaTable.glyphOffsets.size()) continue;
+
+		u32 compStart = locaTable.glyphOffsets[comp.glyphIndex];
+		u32 compEnd = locaTable.glyphOffsets[comp.glyphIndex + 1];
+
+		//empty
+		if (compStart == compEnd) continue;
+
+		GlyphInfo subHeader = ReadGlyphHeader(
+			data,
+			glyfBase,
+			compStart);
+
+		GlyphContours subContours{};
+
+		subContours = subHeader.numberOfContours >= 0
+			? ParseSimpleGlyph(
+				data,
+				subHeader,
+				glyfBase,
+				compStart,
+				compEnd)
+			: ParseCompositeGlyph(
+				data,
+				locaTable,
+				glyfBase,
+				compStart,
+				compEnd);
+
+		//apply transform + offset
+		for (auto& contour : subContours.contours)
+		{
+			for (auto& pt : contour)
+			{
+				kvec2 pos = pt.size;
+				pt.size = (comp.transform * pos) + comp.args;
+			}
+		}
+
+		//merge into master
+		contours.contours.insert(
+			contours.contours.end(),
+			subContours.contours.begin(),
+			subContours.contours.end());
+	}
 
 	return contours;
 }

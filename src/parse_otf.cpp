@@ -19,8 +19,6 @@ using KalaFont::Parse;
 using KalaFont::OffsetTable;
 using KalaFont::TableRecord;
 using KalaFont::HeadTable;
-using KalaFont::MaxpTable;
-using KalaFont::GlyphInfo;
 using KalaFont::GlyphPoint;
 using KalaFont::GlyphContours;
 
@@ -34,7 +32,8 @@ namespace KalaFont
 		const vector<u8>& data,
 		const OffsetTable& offsetTable,
 		const HeadTable& headTable,
-		const MaxpTable& maxpTable,
+		const HheaTable& hheaTable,
+		const vector<HmtxEntry>& hMetrics,
 		bool isVerbose)
 	{
 		return false;

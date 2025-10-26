@@ -16,6 +16,7 @@ namespace KalaFont
 	using std::string;
 
 	using KalaHeaders::kvec2;
+	using KalaHeaders::kmat2;
 
 	struct TableRecord
 	{
@@ -57,19 +58,26 @@ namespace KalaFont
 		i16 glyphDataFormat{};
 	};
 
-	struct MaxpTable
+	struct HheaTable
 	{
-		u32 version{};
-		u16 numGlyphs{};
+		i16 ascender{};
+		i16 descender{};
+		i16 lineGap{};
+		u16 advanceWidthMax{};
+		i16 minLeftSideBearing{};
+		i16 minRightSideBearing{};
+		i16 xMaxExtent{};
+		i16 caretSlopeRise{};
+		i16 caretSlopeRun{};
+		i16 caretOffset{};
+		u16 metricDataFormat{};
+		u16 numberOfMetrics{};
 	};
 
-	struct GlyphInfo
+	struct HmtxEntry
 	{
-		i16 numberOfContours{};
-		i16 xMin{};
-		i16 yMin{};
-		i16 xMax{};
-		i16 yMax{};
+		i16 advanceWidth{};
+		i16 leftSideBearing{};
 	};
 
 	struct GlyphPoint
@@ -83,38 +91,21 @@ namespace KalaFont
 		vector<vector<GlyphPoint>> contours{};
 	};
 
-	struct GlyphAnchor
-	{
-		
-	};
-
-	struct GlyphTransform
-	{
-
-	};
-
 	struct GlyphResult
 	{
 		GlyphContours contours{};
-		GlyphAnchor anchor{};
-		GlyphTransform transform{};
+		kvec2 anchor{};
+		kmat2 transform{};
 		u32 glyphIndex{};
 		i16 advanceWidth{};
 		i16 leftSideBearing{};
 	};
 
-	struct TriangulatedData
-	{
-		vector<f32> vertices{};
-		vector<u32> indices{};
-		u32 vertexCount{};
-		u32 indexCount{};
-	};
-
 	struct ParsedData
 	{
 		vector<GlyphResult> glyphs{};
-		TriangulatedData meshData{};
+		vector<f32> vertices{};
+		vector<u32> indices{};
 	};
 
 	class Parse

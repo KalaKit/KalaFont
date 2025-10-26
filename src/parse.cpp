@@ -26,7 +26,8 @@ using KalaFont::Parse;
 using KalaFont::OffsetTable;
 using KalaFont::TableRecord;
 using KalaFont::HeadTable;
-using KalaFont::MaxpTable;
+using KalaFont::HheaTable;
+using KalaFont::HmtxEntry;
 using KalaFont::Parse_TTF;
 using KalaFont::Parse_OTF;
 
@@ -62,10 +63,13 @@ static HeadTable ReadHeadTable(
 	const vector<u8>& data, 
 	u32 offset,
 	bool isVerbose);
-static MaxpTable ReadMaxpTable(
-	const vector<u8>& data, 
+static HheaTable ReadHhea(
+	const vector<u8>& data,
+	u32 offset);
+static vector<HmtxEntry> ReadHmtx(
+	const vector<u8>& data,
 	u32 offset,
-	bool isVerbose);
+	u16 count);
 
 static bool ParsePreCheck(const vector<string>& params);
 static bool GetPreCheck(const vector<string>& params);
@@ -139,27 +143,27 @@ void ParseAny(
 	}
 
 	//
-	// MAXP TABLE
+	// PARSE HHEA AND HMTX
 	//
 
-	auto maxpIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
-		[](const TableRecord& t) { return string(t.tag, 4) == "maxp"; });
+	auto hheaIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
+		[](const TableRecord& t) { return string(t.tag, 4) == "hhea"; });
 
-	MaxpTable maxpTable = ReadMaxpTable(
+	HheaTable hheaTable = ReadHhea(
 		data, 
-		maxpIt->offset,
-		isVerbose);
+		hheaIt->offset);
 
-	if (maxpTable.numGlyphs == 0)
-	{
-		Log::Print(
-			"Failed to parse font because it had invalid maxp table data!",
-			"PARSE_TTF",
-			LogType::LOG_ERROR,
-			2);
+	auto hmtxIt = find_if(offsetTable.tables.begin(), offsetTable.tables.end(),
+		[](const TableRecord& t) { return string(t.tag, 4) == "hmtx"; });
 
-		return;
-	}
+	vector<HmtxEntry> hMetrics = ReadHmtx(
+		data, 
+		hmtxIt->offset, 
+		hheaTable.numberOfMetrics);
+
+	//
+	// PARSE OTF/TTF
+	//
 
 	bool success{};
 	if (thisVersion == TTF_VERSION)
@@ -167,17 +171,19 @@ void ParseAny(
 		success = Parse_TTF::Parse(
 			data, 
 			offsetTable, 
-			headTable, 
-			maxpTable,
+			headTable,
+			hheaTable,
+			hMetrics,
 			isVerbose);
 	}
 	else
 	{
-		success = Parse_TTF::Parse(
+		success = Parse_OTF::Parse(
 			data,
 			offsetTable,
 			headTable,
-			maxpTable,
+			hheaTable,
+			hMetrics,
 			isVerbose);
 	}
 
@@ -332,31 +338,33 @@ HeadTable ReadHeadTable(
 	return table;
 }
 
-MaxpTable ReadMaxpTable(
-	const vector<u8>& data, 
-	u32 offset,
-	bool isVerbose)
+HheaTable ReadHhea(
+	const vector<u8>& data,
+	u32 offset)
 {
-	//test if numglyphs is valid
-	if (Parse::ReadU32(data, offset + 4) == 0) return {};
-
-	MaxpTable table{};
-
-	table.version = Parse::ReadU32(data, offset);
-	table.numGlyphs = Parse::ReadU16(data, offset + 4);
-
-	if (isVerbose)
-	{
-		ostringstream maxpTableMsg{};
-
-		maxpTableMsg << "Maxp table data:\n"
-			<< "  version:   0x" << hex << table.version << dec << "\n"
-			<< "  numGlyphs: " << table.numGlyphs << "\n";
-
-		Log::Print(maxpTableMsg.str());
-	}
+	HheaTable table{};
+	table.ascender = Parse::ReadU16(data, offset + 4);
+	table.descender = Parse::ReadU16(data, offset + 6);
+	table.numberOfMetrics = Parse::ReadU16(data, offset + 34);
 
 	return table;
+}
+
+vector<HmtxEntry> ReadHmtx(
+	const vector<u8>& data,
+	u32 offset,
+	u16 count)
+{
+	vector<HmtxEntry> v(count);
+	size_t p = offset;
+
+	for (u16 i = 0; i < count; ++i)
+	{
+		v[i].advanceWidth = Parse::ReadU16(data, p); p += 2;
+		v[i].leftSideBearing = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+	}
+
+	return v;
 }
 
 bool ParsePreCheck(const vector<string>& params)
