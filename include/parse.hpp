@@ -8,13 +8,14 @@
 #include <vector>
 #include <string>
 
-#include "KalaHeaders/core_utils.hpp"
 #include "KalaHeaders/math_utils.hpp"
 
 namespace KalaFont
 {
 	using std::vector;
 	using std::string;
+
+	using KalaHeaders::kvec2;
 
 	struct TableRecord
 	{
@@ -73,8 +74,7 @@ namespace KalaFont
 
 	struct GlyphPoint
 	{
-		i16 x{};
-		i16 y{};
+		kvec2 size{};
 		bool onCurve{};
 	};
 

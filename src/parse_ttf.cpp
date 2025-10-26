@@ -8,12 +8,14 @@
 #include <sstream>
 
 #include "KalaHeaders/log_utils.hpp"
+#include "KalaHeaders/math_utils.hpp"
 
 #include "parse.hpp"
 #include "parse_ttf.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
+using KalaHeaders::kvec2;
 
 using KalaFont::Parse;
 using KalaFont::OffsetTable;
@@ -197,7 +199,7 @@ namespace KalaFont
 
 				if (!c0.empty())
 				{
-					glyfMsg << "  p0: (" << c0[0].x << ", " << c0[0].y
+					glyfMsg << "  p0: (" << c0[0].size.x << ", " << c0[0].size.y
 						<< ") on: " << c0[0].onCurve;
 				}
 
@@ -389,7 +391,7 @@ GlyphContours ParseSimpleGlyph(
 	{
 		pts[i] = GlyphPoint
 		{
-			xs[i], ys[i],
+			{ static_cast<f32>(xs[i]), static_cast<f32>(ys[i]) },
 			(flags[i] & GLYPH_ON_CURVE_POINT) != 0
 		};
 	}
