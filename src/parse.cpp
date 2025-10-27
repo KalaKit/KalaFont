@@ -22,6 +22,7 @@
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
 using KalaHeaders::kvec2;
+using KalaHeaders::WriteBinaryLinesToFile;
 using KalaHeaders::ReadBinaryLinesFromFile;
 
 using KalaFont::Core;
@@ -84,8 +85,14 @@ static vector<HmtxEntry> ReadHmtx(
 //Generate triangulated meshes for each glyph
 static bool TriangulateGeometry(vector<GlyphResult>& parsedData);
 
-static bool ParsePreCheck(const vector<string>& params);
-static bool GetPreCheck(const vector<string>& params);
+//Exports the data to a kfont file to target path
+static bool ExportKFont(
+	const path& targetPath,
+	const vector<GlyphResult>& parsedData);
+
+static bool ParsePreCheck(
+	const path& fontPath, 
+	const path& targetPath);
 
 namespace KalaFont
 {
@@ -97,18 +104,25 @@ namespace KalaFont
 	{
 		ParseAny(params, true);
 	}
-
-	void Parse::GetKFontInfo(const vector<string>& params)
-	{
-		GetPreCheck(params);
-	}
 }
 
 void ParseAny(
 	const vector<string>& params,
 	bool isVerbose)
 {
-	if (!ParsePreCheck(params)) return;
+	path fontPath = path(params[1]);
+	path kfontPath = path(params[2]);
+
+	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
+	path correctFontPath = weakly_canonical(Core::currentDir / fontPath);
+	path correctTargetPath = weakly_canonical(Core::currentDir / kfontPath);
+
+	if (!ParsePreCheck(
+		correctFontPath,
+		correctTargetPath))
+	{
+		return;
+	}
 
 	//
 	// OFFSET TABLE
@@ -117,7 +131,7 @@ void ParseAny(
 	vector<u8> data{};
 
 	OffsetTable offsetTable = ReadOffsetTable(
-		params[1], 
+		correctFontPath.string(),
 		data,
 		isVerbose);
 
@@ -229,6 +243,26 @@ void ParseAny(
 		return;
 	}
 
+	//
+	// REMOVE MALFORMED OR EMPTY DATA
+	//
+
+	parsedData.erase(
+		remove_if(
+			parsedData.begin(),
+			parsedData.end(),
+			[](const GlyphResult& glyph)
+			{
+				return glyph.vertices.empty()
+					|| glyph.indices.empty()
+					|| glyph.contours.contours.empty();
+			}),
+			parsedData.end());
+
+	//
+	// SCALE PARSED DATA
+	//
+
 	f32 scale = 1.0f / headTable.unitsPerEm;
 
 	for (auto& glyph : parsedData)
@@ -310,8 +344,25 @@ void ParseAny(
 		}
 	}
 
+	//
+	// EXPORT PARSED DATA
+	//
+
+	if (!ExportKFont(
+		correctTargetPath,
+		parsedData))
+	{
+		Log::Print(
+			"Failed to export font '" + correctFontPath.string() + "' parsed data to target path '" + correctTargetPath.string() + "'!",
+			"PARSE",
+			LogType::LOG_ERROR,
+			2);
+
+		return;
+	}
+
 	Log::Print(
-		"Finished parsing " + fontType + " font!",
+		"Parsed font '" + correctFontPath.string() + "' and exported it to target path '" + correctTargetPath.string() + "' !",
 		"PARSE",
 		LogType::LOG_SUCCESS);
 }
@@ -323,16 +374,13 @@ OffsetTable ReadOffsetTable(
 {
 	OffsetTable table{};
 
-	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
-	path correctFontPath = weakly_canonical(Core::currentDir / path(fontPath));
-
 	vector<u8> data{};
-	string result = ReadBinaryLinesFromFile(correctFontPath, data);
+	string result = ReadBinaryLinesFromFile(fontPath, data);
 
 	if (!result.empty())
 	{
 		Log::Print(
-			"Failed to parse the font file '" + correctFontPath.string() + "'! Reason: " + result,
+			"Failed to parse the font file '" + fontPath + "'! Reason: " + result,
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -629,29 +677,119 @@ bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 	return true;
 }
 
-bool ParsePreCheck(const vector<string>& params)
+bool ExportKFont(
+	const path& targetPath,
+	const vector<GlyphResult>& parsedData)
 {
-	path fontPath = path(params[1]);
-	path kfontPath = path(params[2]);
+	if (parsedData.empty()) return false;
 
-	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
-	path correctFontPath = weakly_canonical(Core::currentDir / fontPath);
-	path correctKFontPath = weakly_canonical(Core::currentDir / kfontPath);
+	vector<u8> data{};
 
-	if (!exists(correctFontPath))
+	auto WriteU32 = [&](u32 v)
+		{
+			const u8* p = reinterpret_cast<const u8*>(&v);
+			data.insert(data.end(), p, p + sizeof(u32));
+		};
+	auto WriteF32 = [&](f32 v)
+		{
+			const u8* p = reinterpret_cast<const u8*>(&v);
+			data.insert(data.end(), p, p + sizeof(f32));
+		};
+	auto WriteStr = [&](const char* s, size_t len)
+		{
+			data.insert(data.end(), s, s + len);
+		};
+
+	//
+	// HEADER
+	//
+
+	WriteStr("KFNT", 4);
+	//version
+	WriteU32(1);
+	//glyph count
+	WriteU32(static_cast<u32>(parsedData.size()));
+
+	//
+	// GLYPH BLOCKS
+	//
+
+	for (const auto& glyph : parsedData)
+	{
+		//tag
+		WriteStr("GLYF", 4);
+
+		//core
+		WriteU32(glyph.glyphIndex);
+		WriteF32(glyph.advanceWidth);
+		WriteF32(glyph.leftSideBearing);
+
+		//anchor
+		WriteF32(glyph.anchor.x);
+		WriteF32(glyph.anchor.y);
+
+		//transform
+		WriteF32(glyph.transform.m00);
+		WriteF32(glyph.transform.m01);
+		WriteF32(glyph.transform.m10);
+		WriteF32(glyph.transform.m11);
+
+		//vertices
+		WriteStr("VERT", 4);
+		u32 vertexCount = static_cast<u32>(glyph.vertices.size());
+		WriteU32(vertexCount);
+		for (u32 i = 0; i < vertexCount; ++i)
+		{
+			WriteF32(glyph.vertices[i]);
+		}
+
+		//indices
+		WriteStr("INDI", 4);
+		u32 indiceCount = static_cast<u32>(glyph.indices.size());
+		WriteU32(indiceCount);
+		for (u32 i = 0; i < indiceCount; ++i)
+		{
+			WriteU32(glyph.indices[i]);
+		}
+	}
+
+	//
+	// WRITE TO FILE
+	//
+
+	string result = WriteBinaryLinesToFile(targetPath, data, false);
+	if (!result.empty())
 	{
 		Log::Print(
-			"Cannot parse to kfont because the font file '" + correctFontPath.string() + "' does not exist!",
+			result,
+			"EXPORT",
+			LogType::LOG_ERROR,
+			2);
+
+		return false;
+	}
+
+	return true;
+}
+
+bool ParsePreCheck(
+	const path& fontPath, 
+	const path& targetPath)
+{
+	if (!exists(fontPath))
+	{
+		Log::Print(
+			"Cannot parse to kfont because the font file '" + fontPath.string() + "' does not exist!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
 
 		return false;
 	}
-	if (exists(correctKFontPath))
+	if (exists(targetPath))
 	{
 		Log::Print(
-			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the kfont file already exists!",
+			"Cannot parse the font file '" + fontPath.string() + "' to kfont file '" + targetPath.string() + "' because the kfont file already exists!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -659,10 +797,10 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (!is_regular_file(correctFontPath))
+	if (!is_regular_file(fontPath))
 	{
 		Log::Print(
-			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file is not a regular file!",
+			"Cannot parse the font file '" + fontPath.string() + "' to kfont file '" + targetPath.string() + "' because the font file is not a regular file!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -670,12 +808,12 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (!path(correctFontPath).has_extension()
-		|| (path(correctFontPath).extension() != ".ttf"
-		&& path(correctFontPath).extension() != ".otf"))
+	if (!path(fontPath).has_extension()
+		|| (path(fontPath).extension() != ".ttf"
+		&& path(fontPath).extension() != ".otf"))
 	{
 		Log::Print(
-			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file does not have a valid extension!",
+			"Cannot parse the font file '" + fontPath.string() + "' to kfont file '" + targetPath.string() + "' because the font file does not have a valid extension!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -683,11 +821,11 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (!path(correctKFontPath).has_extension()
-		|| path(correctKFontPath).extension() != ".kfont")
+	if (!path(targetPath).has_extension()
+		|| path(targetPath).extension() != ".kfont")
 	{
 		Log::Print(
-			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the kfont file does not have a valid extension!",
+			"Cannot parse the font file '" + fontPath.string() + "' to kfont file '" + targetPath.string() + "' because the kfont file does not have a valid extension!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -698,11 +836,11 @@ bool ParsePreCheck(const vector<string>& params)
 	size_t offset{};
 	vector<u8> versionData{};
 
-	string result = ReadBinaryLinesFromFile(correctFontPath.string(), versionData, 0, 4);
+	string result = ReadBinaryLinesFromFile(fontPath.string(), versionData, 0, 4);
 	if (!result.empty())
 	{
 		Log::Print(
-			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "'! Reason: " + result,
+			"Cannot parse the font file '" + fontPath.string() + "' to kfont file '" + targetPath.string() + "'! Reason: " + result,
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -712,11 +850,11 @@ bool ParsePreCheck(const vector<string>& params)
 
 	thisVersion = Parse::ReadU32(versionData, offset);
 
-	if (path(correctFontPath).extension() == ".ttf"
+	if (path(fontPath).extension() == ".ttf"
 		&& thisVersion != TTF_VERSION)
 	{
 		Log::Print(
-			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file does not have a valid ttf/otf font version!",
+			"Cannot parse the font file '" + fontPath.string() + "' to kfont file '" + targetPath.string() + "' because the font file does not have a valid ttf/otf font version!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -724,56 +862,12 @@ bool ParsePreCheck(const vector<string>& params)
 		return false;
 	}
 
-	if (path(correctFontPath).extension() == ".otf"
+	if (path(fontPath).extension() == ".otf"
 		&& thisVersion != TTF_VERSION
 		&& thisVersion != OTF_VERSION)
 	{
 		Log::Print(
-			"Cannot parse the font file '" + correctFontPath.string() + "' to kfont file '" + correctKFontPath.string() + "' because the font file does not have a valid otf font version!",
-			"PARSE",
-			LogType::LOG_ERROR,
-			2);
-
-		return false;
-	}
-
-	return true;
-}
-
-bool GetPreCheck(const vector<string>& params)
-{
-	path fontPath = path(params[1]);
-
-	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
-	path correctFontPath = weakly_canonical(Core::currentDir / fontPath);
-
-	if (!exists(correctFontPath))
-	{
-		Log::Print(
-			"Cannot get kfont info because kfont target path '" + correctFontPath.string() + "' does not exist!",
-			"PARSE",
-			LogType::LOG_ERROR,
-			2);
-
-		return false;
-	}
-
-	if (!is_regular_file(correctFontPath))
-	{
-		Log::Print(
-			"Cannot get kfont info because kfont target path '" + correctFontPath.string() + "' is not a regular file!",
-			"PARSE",
-			LogType::LOG_ERROR,
-			2);
-
-		return false;
-	}
-
-	if (!path(correctFontPath).has_extension()
-		|| path(correctFontPath).extension() != ".kfont")
-	{
-		Log::Print(
-			"Cannot get kfont info because kfont target path '" + correctFontPath.string() + "' does not have a valid extension!",
+			"Cannot parse the font file '" + fontPath.string() + "' to kfont file '" + targetPath.string() + "' because the font file does not have a valid otf font version!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
