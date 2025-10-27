@@ -107,7 +107,7 @@ static GlyphContours ParseCompositeGlyph(
 
 namespace KalaFont
 {
-	ParsedData Parse_TTF::Parse(
+	vector<GlyphResult> Parse_TTF::Parse(
 		const vector<u8>& data,
 		const OffsetTable& offsetTable,
 		const HeadTable& headTable,
@@ -204,10 +204,7 @@ namespace KalaFont
 		// SIMPLE AND COMPOSITE GLYPH
 		//
 
-		ParsedData parsedData{};
-
-		ostringstream metricsMsg{};
-		metricsMsg << "First 10 glyphs:\n";
+		vector<GlyphResult> parsedData{};
 
 		const u32 glyfBase = glyfIt->offset;
 
@@ -255,22 +252,8 @@ namespace KalaFont
 
 			result.anchor = { static_cast<f32>(result.leftSideBearing), 0.0f };
 
-			if (isVerbose
-				&& result.glyphIndex < 11)
-			{
-				metricsMsg << "Glyph[" << result.glyphIndex << "]\n"
-					<< "  advance width:     " << result.advanceWidth << "\n"
-					<< "  left side bearing: " << result.leftSideBearing << "\n"
-					<< "  anchor:            (" << result.anchor.x << ", " << result.anchor.y << ")\n"
-					<< "  transform:\n"
-					<< "    [" << result.transform.m00 << ", " << result.transform.m01 << "]\n"
-					<< "    [" << result.transform.m10 << ", " << result.transform.m11 << "]\n";
-			}
-
-			parsedData.glyphs.push_back(move(result));
+			parsedData.push_back(move(result));
 		}
-
-		if (isVerbose) Log::Print(metricsMsg.str());
 
 		return parsedData;
 	}

@@ -60,6 +60,7 @@ namespace KalaFont
 
 	struct HheaTable
 	{
+		f32 version{};
 		i16 ascender{};
 		i16 descender{};
 		i16 lineGap{};
@@ -70,14 +71,18 @@ namespace KalaFont
 		i16 caretSlopeRise{};
 		i16 caretSlopeRun{};
 		i16 caretOffset{};
+		i16 reserved0{};
+		i16 reserved1{};
+		i16 reserved2{};
+		i16 reserved3{};
 		u16 metricDataFormat{};
 		u16 numberOfMetrics{};
 	};
 
 	struct HmtxEntry
 	{
-		i16 advanceWidth{};
-		i16 leftSideBearing{};
+		f32 advanceWidth{};
+		f32 leftSideBearing{};
 	};
 
 	struct GlyphPoint
@@ -93,28 +98,15 @@ namespace KalaFont
 
 	struct GlyphResult
 	{
+		vector<f32> vertices{};
+		vector<u32> indices{};
+
 		GlyphContours contours{};
 		kvec2 anchor{};
 		kmat2 transform{};
 		u32 glyphIndex{};
-		i16 advanceWidth{};
-		i16 leftSideBearing{};
-	};
-
-	struct ParsedData
-	{
-		vector<GlyphResult> glyphs{};
-		vector<f32> vertices{};
-		vector<u32> indices{};
-	};
-
-	enum class GeometryType
-	{
-		//SDF - one quad per mesh
-		GEO_BASE,
-
-		//triangulated - full outline mesh
-		GEO_FULL
+		f32 advanceWidth{};
+		f32 leftSideBearing{};
 	};
 
 	class Parse

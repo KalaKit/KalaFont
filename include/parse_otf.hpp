@@ -20,7 +20,7 @@ namespace KalaFont
 	class Parse_OTF
 	{
 	public:
-		static ParsedData Parse(
+		static vector<GlyphResult> Parse(
 			const vector<u8>& data,
 			const OffsetTable& offsetTable,
 			const HeadTable& headTable,

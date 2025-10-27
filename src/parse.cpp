@@ -8,9 +8,11 @@
 #include <filesystem>
 #include <algorithm>
 #include <sstream>
+#include <numeric>
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/file_utils.hpp"
+#include "KalaHeaders/math_utils.hpp"
 
 #include "parse.hpp"
 #include "parse_ttf.hpp"
@@ -19,6 +21,7 @@
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
+using KalaHeaders::kvec2;
 using KalaHeaders::ReadBinaryLinesFromFile;
 
 using KalaFont::Core;
@@ -28,8 +31,8 @@ using KalaFont::TableRecord;
 using KalaFont::HeadTable;
 using KalaFont::HheaTable;
 using KalaFont::HmtxEntry;
-using KalaFont::ParsedData;
-using KalaFont::GeometryType;
+using KalaFont::GlyphPoint;
+using KalaFont::GlyphResult;
 using KalaFont::Parse_TTF;
 using KalaFont::Parse_OTF;
 
@@ -46,10 +49,15 @@ using std::ostringstream;
 using std::hex;
 using std::dec;
 using std::min;
+using std::iota;
 
 constexpr u32 TTF_VERSION = 0x00010000;
 constexpr u32 OTF_VERSION = 'OTTO';
 constexpr u32 MAGIC_NUMBER = 0x5F0F3CF5;
+
+//Controls the curve resolution of the font,
+//higher means smoother but more vertices
+constexpr u8 CURVE_RESOLUTION = 1;
 
 static u32 thisVersion{};
 
@@ -73,11 +81,8 @@ static vector<HmtxEntry> ReadHmtx(
 	u32 offset,
 	u16 count);
 
-//Generate SDF quads
-static bool GenerateBase(ParsedData& parsedData);
-
-//Generate triangulated mesh
-static bool GenerateFull(ParsedData& parsedData);
+//Generate triangulated meshes for each glyph
+static bool TriangulateGeometry(vector<GlyphResult>& parsedData);
 
 static bool ParsePreCheck(const vector<string>& params);
 static bool GetPreCheck(const vector<string>& params);
@@ -105,10 +110,6 @@ void ParseAny(
 {
 	if (!ParsePreCheck(params)) return;
 
-	GeometryType geometryType = params[1] == "base"
-		? GeometryType::GEO_BASE
-		: GeometryType::GEO_FULL;
-
 	//
 	// OFFSET TABLE
 	//
@@ -116,7 +117,7 @@ void ParseAny(
 	vector<u8> data{};
 
 	OffsetTable offsetTable = ReadOffsetTable(
-		params[2], 
+		params[1], 
 		data,
 		isVerbose);
 
@@ -177,7 +178,7 @@ void ParseAny(
 	// PARSE OTF/TTF
 	//
 
-	ParsedData parsedData{};
+	vector<GlyphResult> parsedData{};
 
 	if (thisVersion == TTF_VERSION)
 	{
@@ -204,7 +205,7 @@ void ParseAny(
 		? "TTF"
 		: "OTF";
 
-	if (parsedData.glyphs.empty())
+	if (parsedData.empty())
 	{
 		Log::Print(
 			"Failed to parse " + fontType + " font!",
@@ -215,9 +216,7 @@ void ParseAny(
 		return;
 	}
 
-	bool geometryResult = geometryType == GeometryType::GEO_BASE
-		? GenerateBase(parsedData)
-		: GenerateFull(parsedData);
+	bool geometryResult = TriangulateGeometry(parsedData);
 
 	if (!geometryResult)
 	{
@@ -228,6 +227,87 @@ void ParseAny(
 			2);
 
 		return;
+	}
+
+	f32 scale = 1.0f / headTable.unitsPerEm;
+
+	for (auto& glyph : parsedData)
+	{
+		if (glyph.vertices.size() > 512)
+		{
+			Log::Print(
+				"Font " + fontType + " exceeded 512 vertices for glyph '" + to_string(glyph.glyphIndex) + "'!",
+				"PARSE",
+				LogType::LOG_ERROR,
+				2);
+
+			return;
+		}
+		if (glyph.indices.size() > 512)
+		{
+			Log::Print(
+				"Font " + fontType + " exceeded 512 indices for glyph '" + to_string(glyph.glyphIndex) + "'!",
+				"PARSE",
+				LogType::LOG_ERROR,
+				2);
+
+			return;
+		}
+
+		for (size_t i = 0; i < glyph.vertices.size(); i += 2)
+		{
+			glyph.vertices[i + 0] *= scale;
+			glyph.vertices[i + 1] *= scale;
+		}
+
+		glyph.anchor *= scale;
+		glyph.leftSideBearing = static_cast<f32>(glyph.leftSideBearing) * scale;
+		glyph.advanceWidth = static_cast<f32>(glyph.advanceWidth) * scale;
+	}
+
+	if (isVerbose)
+	{
+		ostringstream resultMsg{};
+		resultMsg << "First couple of glyphs:\n";
+		Log::Print(resultMsg.str());
+
+		u8 count = 0;
+
+		for (const auto& v : parsedData)
+		{
+			ostringstream vmsg{};
+
+			if (v.glyphIndex > 10
+				|| v.contours.contours.empty()
+				|| v.vertices.empty()
+				|| v.indices.empty())
+			{
+				continue;
+			}
+
+			vmsg << "Glyph[" << v.glyphIndex << "]\n"
+				<< "  advance width:     " << v.advanceWidth << "\n"
+				<< "  left side bearing: " << v.leftSideBearing << "\n"
+				<< "  anchor:            (" << v.anchor.x << ", " << v.anchor.y << ")\n"
+				<< "  transform:\n"
+				<< "    [" << v.transform.m00 << ", " << v.transform.m01 << "]\n"
+				<< "    [" << v.transform.m10 << ", " << v.transform.m11 << "]\n"
+				<< "  vertices:\n";
+
+			for (const auto& vert : v.vertices)
+			{
+				vmsg << "    " << vert << "\n";
+			}
+
+			vmsg << "  indices:\n";
+
+			for (const auto& ind : v.indices)
+			{
+				vmsg << "    " << ind << "\n";
+			}
+
+			Log::Print(vmsg.str());
+		}
 	}
 
 	Log::Print(
@@ -388,39 +468,171 @@ vector<HmtxEntry> ReadHmtx(
 
 	for (u16 i = 0; i < count; ++i)
 	{
-		v[i].advanceWidth = Parse::ReadU16(data, p); p += 2;
-		v[i].leftSideBearing = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+		v[i].advanceWidth = static_cast<f32>(Parse::ReadU16(data, p)); p += 2;
+		v[i].leftSideBearing = static_cast<f32>(Parse::ReadU16(data, p)); p += 2;
 	}
 
 	return v;
 }
 
-bool GenerateBase(ParsedData& parsedData)
+bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 {
-	return true;
-}
+	//TODO: winding correction + hole detection for complex glyphs
 
-bool GenerateFull(ParsedData& parsedData)
-{
+	for (auto& glyph : glyphs)
+	{
+		if (glyph.contours.contours.empty()) continue;
+
+		glyph.vertices.clear();
+		glyph.indices.clear();
+
+		//ear-clipping lambda
+		auto TriangulatePolygon = [](const vector<kvec2>& poly) -> vector<u32>
+			{
+				vector<u32> indices{};
+				const size_t n = poly.size();
+				if (n < 3) return indices;
+
+				vector<u32> verts(n);
+				iota(verts.begin(), verts.end(), 0);
+
+				auto area = [&](const kvec2& a, const kvec2& b, const kvec2& c)
+					{
+						return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+					};
+
+				auto inside = [&](const kvec2& A, const kvec2& B, const kvec2& C, const kvec2& P)
+					{
+						return 
+							area(A, B, P) > 0 
+							&& area(B, C, P) > 0 
+							&& area(C, A, P) > 0;
+					};
+
+				size_t count = 2 * n;
+				while (verts.size() > 2 && count--)
+				{
+					bool earFound{};
+
+					for (size_t i = 0; i < verts.size(); ++i)
+					{
+						u32 i0 = verts[(i + verts.size() - 1) % verts.size()];
+						u32 i1 = verts[i];
+						u32 i2 = verts[(i + 1) % verts.size()];
+
+						const kvec2& A = poly[i0];
+						const kvec2& B = poly[i1];
+						const kvec2& C = poly[i2];
+
+						if (area(A, B, C) <= 0) continue; //reflex
+
+						bool anySide{};
+
+						for (u32 j : verts)
+						{
+							if (j == i0
+								|| j == i1
+								|| j == i2)
+							{
+								continue;
+							}
+
+							if (inside(A, B, C, poly[j]))
+							{
+								anySide = true;
+								break;
+							}
+						}
+
+						if (!anySide)
+						{
+							indices.push_back(i0);
+							indices.push_back(i1);
+							indices.push_back(i2);
+							verts.erase(verts.begin() + i);
+							earFound = true;
+							break;
+						}
+					}
+					if (!earFound) break;
+				}
+
+				return indices;
+			};
+
+		//flatten quadratic beziers into polygons
+
+		vector<vector<kvec2>> polygons{};
+
+		for (const auto& contour : glyph.contours.contours)
+		{
+			vector<kvec2> flattened{};
+			if (contour.empty()) continue;
+
+			size_t count = contour.size();
+			auto GetPoint = [&](size_t idx) -> const GlyphPoint&
+				{
+					return contour[idx % count];
+				};
+
+			for (size_t i = 0; i < count; ++i)
+			{
+				const GlyphPoint& p0 = GetPoint(i);
+				const GlyphPoint& p1 = GetPoint(i + 1);
+
+				if (p0.onCurve
+					&& p1.onCurve)
+				{
+					flattened.push_back(p0.size);
+				}
+				else if (p0.onCurve
+					&& !p1.onCurve)
+				{
+					const GlyphPoint& p2 = GetPoint(i + 2);
+					kvec2 nextOn = p2.onCurve ? p2.size : (p1.size + p2.size) * 0.5f;
+
+					for (int s = 0; s <= CURVE_RESOLUTION; ++s)
+					{
+						f32 t = static_cast<f32>(s) / CURVE_RESOLUTION;
+						f32 u = 1.0f - t;
+
+						kvec2 pt =
+							(u * u) * p0.size
+							+ (2.0f * u * t) * p1.size
+							+ (t * t) * nextOn;
+						flattened.push_back(pt);
+					}
+				}
+			}
+
+			polygons.push_back(move(flattened));
+		}
+
+		//triangulate each contour
+		for (const auto& poly : polygons)
+		{
+			if (poly.size() < 3) continue;
+
+			vector<u32> tris = TriangulatePolygon(poly);
+			u32 vertexOffset = static_cast<u32>(glyph.vertices.size() / 2);
+
+			for (const auto& v : poly)
+			{
+				glyph.vertices.push_back(v.x);
+				glyph.vertices.push_back(v.y);
+			}
+
+			for (u32 i : tris) glyph.indices.push_back(vertexOffset + i);
+		}
+	}
+
 	return true;
 }
 
 bool ParsePreCheck(const vector<string>& params)
 {
-	if (params[1] != "base"
-		&& params[1] != "full")
-	{
-		Log::Print(
-			"Cannot parse to kfont because the geometry type was incorrect!",
-			"PARSE",
-			LogType::LOG_ERROR,
-			2);
-
-		return false;
-	}
-
-	path fontPath = path(params[2]);
-	path kfontPath = path(params[3]);
+	path fontPath = path(params[1]);
+	path kfontPath = path(params[2]);
 
 	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
 	path correctFontPath = weakly_canonical(Core::currentDir / fontPath);
