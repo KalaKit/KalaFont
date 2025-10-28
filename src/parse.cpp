@@ -21,7 +21,7 @@
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
-using KalaHeaders::kvec2;
+using KalaHeaders::vec2;
 using KalaHeaders::WriteBinaryLinesToFile;
 using KalaHeaders::ReadBinaryLinesFromFile;
 
@@ -535,7 +535,7 @@ bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 		glyph.indices.clear();
 
 		//ear-clipping lambda
-		auto TriangulatePolygon = [](const vector<kvec2>& poly) -> vector<u32>
+		auto TriangulatePolygon = [](const vector<vec2>& poly) -> vector<u32>
 			{
 				vector<u32> indices{};
 				const size_t n = poly.size();
@@ -544,12 +544,12 @@ bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 				vector<u32> verts(n);
 				iota(verts.begin(), verts.end(), 0);
 
-				auto area = [&](const kvec2& a, const kvec2& b, const kvec2& c)
+				auto area = [&](const vec2& a, const vec2& b, const vec2& c)
 					{
 						return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 					};
 
-				auto inside = [&](const kvec2& A, const kvec2& B, const kvec2& C, const kvec2& P)
+				auto inside = [&](const vec2& A, const vec2& B, const vec2& C, const vec2& P)
 					{
 						return 
 							area(A, B, P) > 0 
@@ -568,9 +568,9 @@ bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 						u32 i1 = verts[i];
 						u32 i2 = verts[(i + 1) % verts.size()];
 
-						const kvec2& A = poly[i0];
-						const kvec2& B = poly[i1];
-						const kvec2& C = poly[i2];
+						const vec2& A = poly[i0];
+						const vec2& B = poly[i1];
+						const vec2& C = poly[i2];
 
 						if (area(A, B, C) <= 0) continue; //reflex
 
@@ -610,11 +610,11 @@ bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 
 		//flatten quadratic beziers into polygons
 
-		vector<vector<kvec2>> polygons{};
+		vector<vector<vec2>> polygons{};
 
 		for (const auto& contour : glyph.contours.contours)
 		{
-			vector<kvec2> flattened{};
+			vector<vec2> flattened{};
 			if (contour.empty()) continue;
 
 			size_t count = contour.size();
@@ -637,14 +637,14 @@ bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 					&& !p1.onCurve)
 				{
 					const GlyphPoint& p2 = GetPoint(i + 2);
-					kvec2 nextOn = p2.onCurve ? p2.size : (p1.size + p2.size) * 0.5f;
+					vec2 nextOn = p2.onCurve ? p2.size : (p1.size + p2.size) * 0.5f;
 
 					for (int s = 0; s <= CURVE_RESOLUTION; ++s)
 					{
 						f32 t = static_cast<f32>(s) / CURVE_RESOLUTION;
 						f32 u = 1.0f - t;
 
-						kvec2 pt =
+						vec2 pt =
 							(u * u) * p0.size
 							+ (2.0f * u * t) * p1.size
 							+ (t * t) * nextOn;

@@ -15,8 +15,8 @@ namespace KalaFont
 	using std::vector;
 	using std::string;
 
-	using KalaHeaders::kvec2;
-	using KalaHeaders::kmat2;
+	using KalaHeaders::vec2;
+	using KalaHeaders::mat2;
 
 	struct TableRecord
 	{
@@ -87,7 +87,7 @@ namespace KalaFont
 
 	struct GlyphPoint
 	{
-		kvec2 size{};
+		vec2 size{};
 		bool onCurve{};
 	};
 
@@ -102,8 +102,8 @@ namespace KalaFont
 		vector<u32> indices{};
 
 		GlyphContours contours{};
-		kvec2 anchor{};
-		kmat2 transform{};
+		vec2 anchor{};
+		mat2 transform{};
 		u32 glyphIndex{};
 		f32 advanceWidth{};
 		f32 leftSideBearing{};

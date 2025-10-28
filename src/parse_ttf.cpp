@@ -15,8 +15,8 @@
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
-using KalaHeaders::kvec2;
-using KalaHeaders::kmat2;
+using KalaHeaders::vec2;
+using KalaHeaders::mat2;
 
 using KalaFont::Parse;
 using KalaFont::OffsetTable;
@@ -511,8 +511,8 @@ GlyphContours ParseCompositeGlyph(
 	struct Component
 	{
 		u16 glyphIndex{};
-		kvec2 args{};
-		kmat2 transform
+		vec2 args{};
+		mat2 transform
 		{
 			1.0f, 0.0f,
 			0.0f, 1.0f
@@ -626,7 +626,7 @@ GlyphContours ParseCompositeGlyph(
 		{
 			for (auto& pt : contour)
 			{
-				kvec2 pos = pt.size;
+				vec2 pos = pt.size;
 				pt.size = (comp.transform * pos) + comp.args;
 			}
 		}
