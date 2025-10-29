@@ -3,6 +3,13 @@
 //This is free software, and you are welcome to redistribute it under certain conditions.
 //Read LICENSE.md for more information.
 
+// ===================================================================================
+// This header originates from KalaFont. The purpose of this header is to allow
+// importing .kfont files to your executable. This header requires file_utils.hpp,
+// math_utils.hpp and log_utils.hpp from KalaHeaders to function, otherwise its
+// completely standalone from the rest of the KalaFont ecosystem. 
+// ===================================================================================
+
 #include <filesystem>
 #include <vector>
 #include <fstream>
