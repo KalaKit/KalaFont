@@ -112,29 +112,6 @@ namespace KalaFont
 	class Parse
 	{
 	public:
-		static u8 ReadU8(
-			const vector<u8>& data,
-			size_t offset)
-		{
-			return data[offset];
-		}
-		static u16 ReadU16(
-			const vector<u8>& data,
-			size_t offset)
-		{
-			return (data[offset] << 8)
-				| data[offset + 1];
-		}
-		static u32 ReadU32(
-			const vector<u8>& data,
-			size_t offset)
-		{
-			return (data[offset] << 24)
-				| (data[offset + 1] << 16)
-				| (data[offset + 2] << 8)
-				| (data[offset + 3]);
-		}
-
 		//Parses an otf/ttf font into a kfont file
 		static void ParseFont(const vector<string>& params);
 

@@ -9,6 +9,7 @@
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/math_utils.hpp"
+#include "KalaHeaders/file_utils.hpp"
 
 #include "parse.hpp"
 #include "parse_ttf.hpp"
@@ -17,6 +18,9 @@ using KalaHeaders::Log;
 using KalaHeaders::LogType;
 using KalaHeaders::vec2;
 using KalaHeaders::mat2;
+using KalaHeaders::ReadU8;
+using KalaHeaders::ReadU16;
+using KalaHeaders::ReadU32;
 
 using KalaFont::Parse;
 using KalaFont::OffsetTable;
@@ -265,12 +269,12 @@ MaxpTable ReadMaxpTable(
 	bool isVerbose)
 {
 	//test if numglyphs is valid
-	if (Parse::ReadU32(data, offset + 4) == 0) return {};
+	if (ReadU32(data, offset + 4) == 0) return {};
 
 	MaxpTable table{};
 
-	table.version = Parse::ReadU32(data, offset);
-	table.numGlyphs = Parse::ReadU16(data, offset + 4);
+	table.version = ReadU32(data, offset);
+	table.numGlyphs = ReadU16(data, offset + 4);
 
 	if (isVerbose)
 	{
@@ -301,7 +305,7 @@ LocaTable ReadLocaTable(
 	{
 		for (u32 i = 0; i <= numGlyphs; ++i)
 		{
-			u16 val = Parse::ReadU16(data, offset + i * 2);
+			u16 val = ReadU16(data, offset + i * 2);
 			table.glyphOffsets[i] = static_cast<u32>(val) * 2;
 		}
 	}
@@ -309,7 +313,7 @@ LocaTable ReadLocaTable(
 	{
 		for (u32 i = 0; i <= numGlyphs; ++i)
 		{
-			table.glyphOffsets[i] = Parse::ReadU32(data, offset + i * 4);
+			table.glyphOffsets[i] = ReadU32(data, offset + i * 4);
 		}
 	}
 
@@ -339,11 +343,11 @@ GlyphInfo ReadGlyphHeader(
 {
 	GlyphInfo gi{};
 
-	gi.numberOfContours = static_cast<i16>(Parse::ReadU16(data, glyfOffset + glyfStart));
-	gi.xMin = static_cast<i16>(Parse::ReadU16(data, glyfOffset + glyfStart + 2));
-	gi.yMin = static_cast<i16>(Parse::ReadU16(data, glyfOffset + glyfStart + 4));
-	gi.xMax = static_cast<i16>(Parse::ReadU16(data, glyfOffset + glyfStart + 6));
-	gi.yMax = static_cast<i16>(Parse::ReadU16(data, glyfOffset + glyfStart + 8));
+	gi.numberOfContours = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart));
+	gi.xMin = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 2));
+	gi.yMin = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 4));
+	gi.xMax = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 6));
+	gi.yMax = static_cast<i16>(ReadU16(data, glyfOffset + glyfStart + 8));
 
 	return gi;
 }
@@ -364,7 +368,7 @@ GlyphContours ParseSimpleGlyph(
 	vector<u16> endPts(header.numberOfContours);
 	for (int i = 0; i < header.numberOfContours; ++i)
 	{
-		endPts[i] = Parse::ReadU16(data, p);
+		endPts[i] = ReadU16(data, p);
 		p += 2;
 	}
 
@@ -372,7 +376,7 @@ GlyphContours ParseSimpleGlyph(
 	// IGNORE INSTRUCTIONS
 	//
 
-	u16 instructionsLength = Parse::ReadU16(data, p); p += 2;
+	u16 instructionsLength = ReadU16(data, p); p += 2;
 	p += instructionsLength;
 
 	//
@@ -391,12 +395,12 @@ GlyphContours ParseSimpleGlyph(
 
 	while (flags.size() < pointCount)
 	{
-		u8 f = Parse::ReadU8(data, p++);
+		u8 f = ReadU8(data, p++);
 		flags.push_back(f);
 
 		if (f & GLYPH_REPEAT_FLAG)
 		{
-			u8 count = Parse::ReadU8(data, p++);
+			u8 count = ReadU8(data, p++);
 			flags.insert(flags.end(), count, f);
 		}
 	}
@@ -415,13 +419,13 @@ GlyphContours ParseSimpleGlyph(
 
 			if (f & GLYPH_X_SHORT_SECTOR)
 			{
-				u8 b = Parse::ReadU8(data, p++);
+				u8 b = ReadU8(data, p++);
 				dx = (f & GLYPH_X_SAME_OR_POS_SHORT) ? int(b) : -int(b);
 			}
 			else
 			{
 				if (f & GLYPH_X_SAME_OR_POS_SHORT) dx = 0;
-				else dx = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+				else dx = static_cast<i16>(ReadU16(data, p)); p += 2;
 			}
 
 			x += dx;
@@ -443,13 +447,13 @@ GlyphContours ParseSimpleGlyph(
 
 			if (f & GLYPH_Y_SHORT_SECTOR)
 			{
-				u8 b = Parse::ReadU8(data, p++);
+				u8 b = ReadU8(data, p++);
 				dy = (f & GLYPH_Y_SAME_OR_POS_SHORT) ? int(b) : -int(b);
 			}
 			else
 			{
 				if (f & GLYPH_Y_SAME_OR_POS_SHORT) dy = 0;
-				else dy = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+				else dy = static_cast<i16>(ReadU16(data, p)); p += 2;
 			}
 
 			y += dy;
@@ -526,8 +530,8 @@ GlyphContours ParseCompositeGlyph(
 
 	while (more && p + 4 <= pend)
 	{
-		u16 flags = Parse::ReadU16(data, p); p += 2;
-		u16 glyphIndex = Parse::ReadU16(data, p); p += 2;
+		u16 flags = ReadU16(data, p); p += 2;
+		u16 glyphIndex = ReadU16(data, p); p += 2;
 		lastFlags = flags;
 
 		Component comp{};
@@ -536,13 +540,13 @@ GlyphContours ParseCompositeGlyph(
 		//read arguments
 		if (flags & GLYPH_ARG_1_AND_2_ARE_WORDS)
 		{
-			comp.args.x = Parse::ReadU16(data, p); p += 2;
-			comp.args.y = Parse::ReadU16(data, p); p += 2;
+			comp.args.x = ReadU16(data, p); p += 2;
+			comp.args.y = ReadU16(data, p); p += 2;
 		}
 		else
 		{
-			comp.args.x = Parse::ReadU16(data, p); p ++;
-			comp.args.y = Parse::ReadU16(data, p); p ++;
+			comp.args.x = ReadU16(data, p); p ++;
+			comp.args.y = ReadU16(data, p); p ++;
 		}
 
 		//interpret args as XY if flagged
@@ -555,22 +559,22 @@ GlyphContours ParseCompositeGlyph(
 
 		if (flags & GLYPH_WE_HAVE_A_SCALE)
 		{
-			i16 val = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			i16 val = static_cast<i16>(ReadU16(data, p)); p += 2;
 			comp.transform.m00 = comp.transform.m11 = val / 16384.0f;
 		}
 		else if (flags & GLYPH_WE_HAVE_AN_X_AND_Y_SCALE)
 		{
-			i16 xScale = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
-			i16 yScale = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			i16 xScale = static_cast<i16>(ReadU16(data, p)); p += 2;
+			i16 yScale = static_cast<i16>(ReadU16(data, p)); p += 2;
 			comp.transform.m00 = xScale / 16384.0f;
 			comp.transform.m11 = yScale / 16384.0f;
 		}
 		else if (flags & GLYPH_WE_HAVE_A_TWO_BY_TWO)
 		{
-			i16 m00 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
-			i16 m01 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
-			i16 m10 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
-			i16 m11 = static_cast<i16>(Parse::ReadU16(data, p)); p += 2;
+			i16 m00 = static_cast<i16>(ReadU16(data, p)); p += 2;
+			i16 m01 = static_cast<i16>(ReadU16(data, p)); p += 2;
+			i16 m10 = static_cast<i16>(ReadU16(data, p)); p += 2;
+			i16 m11 = static_cast<i16>(ReadU16(data, p)); p += 2;
 			comp.transform.m00 = m00 / 16384.0f;
 			comp.transform.m01 = m01 / 16384.0f;
 			comp.transform.m10 = m10 / 16384.0f;
@@ -584,7 +588,7 @@ GlyphContours ParseCompositeGlyph(
 	//skip instructions
 	if (lastFlags & GLYPH_WE_HAVE_INSTRUCTIONS)
 	{
-		u16 len = Parse::ReadU16(data, p);
+		u16 len = ReadU16(data, p);
 		p += 2 + len;
 	}
 

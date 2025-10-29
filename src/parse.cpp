@@ -24,6 +24,9 @@ using KalaHeaders::LogType;
 using KalaHeaders::vec2;
 using KalaHeaders::WriteBinaryLinesToFile;
 using KalaHeaders::ReadBinaryLinesFromFile;
+using KalaHeaders::ReadU8;
+using KalaHeaders::ReadU16;
+using KalaHeaders::ReadU32;
 
 using KalaFont::Core;
 using KalaFont::Parse;
@@ -391,13 +394,13 @@ OffsetTable ReadOffsetTable(
 	size_t offset{};
 
 	//test if numTables is valid
-	if (Parse::ReadU16(data, offset + 6) == 0) return {};
+	if (ReadU16(data, offset + 6) == 0) return {};
 
-	table.scalerType    = Parse::ReadU32(data, offset); offset += 4;
-	table.numTables     = Parse::ReadU16(data, offset); offset += 2;
-	table.searchRange   = Parse::ReadU16(data, offset); offset += 2;
-	table.entrySelector = Parse::ReadU16(data, offset); offset += 2;
-	table.rangeShift    = Parse::ReadU16(data, offset); offset += 2;
+	table.scalerType    = ReadU32(data, offset); offset += 4;
+	table.numTables     = ReadU16(data, offset); offset += 2;
+	table.searchRange   = ReadU16(data, offset); offset += 2;
+	table.entrySelector = ReadU16(data, offset); offset += 2;
+	table.rangeShift    = ReadU16(data, offset); offset += 2;
 
 	table.tables.reserve(table.numTables);
 
@@ -405,9 +408,9 @@ OffsetTable ReadOffsetTable(
 	{
 		TableRecord rec{};
 		memcpy(rec.tag, &data[offset], 4);
-		rec.checkSum = Parse::ReadU32(data, offset + 4);
-		rec.offset   = Parse::ReadU32(data, offset + 8);
-		rec.length   = Parse::ReadU32(data, offset + 12);
+		rec.checkSum = ReadU32(data, offset + 4);
+		rec.offset   = ReadU32(data, offset + 8);
+		rec.length   = ReadU32(data, offset + 12);
 
 		table.tables.push_back(rec);
 		offset += 16;
@@ -441,30 +444,30 @@ HeadTable ReadHeadTable(
 	bool isVerbose)
 {
 	//test if magic number is valid
-	if (Parse::ReadU32(data, offset + 12) != MAGIC_NUMBER) return {};
+	if (ReadU32(data, offset + 12) != MAGIC_NUMBER) return {};
 
 	HeadTable table{};
 	
-	table.majorVersion       = static_cast<i16>(Parse::ReadU16(data, offset));
-	table.minorVersion       = static_cast<i16>(Parse::ReadU16(data, offset + 2));
-	table.fontRevision       = static_cast<i32>(Parse::ReadU32(data, offset + 4));
-	table.checkSumAdjustment = Parse::ReadU32(data, offset + 8);
-	table.magicNumber        = Parse::ReadU32(data, offset + 12);
-	table.flags              = Parse::ReadU16(data, offset + 16);
-	table.unitsPerEm         = Parse::ReadU16(data, offset + 18);
-	table.created            = (static_cast<i64>(Parse::ReadU32(data, offset + 20)) << 32
-	                         | Parse::ReadU32(data, offset + 24));
-	table.modified           = (static_cast<i64>(Parse::ReadU32(data, offset + 28)) << 32
-	                         | Parse::ReadU32(data, offset + 32));
-	table.xMin               = static_cast<i16>(Parse::ReadU16(data, offset + 36));
-	table.yMin               = static_cast<i16>(Parse::ReadU16(data, offset + 38));
-	table.xMax               = static_cast<i16>(Parse::ReadU16(data, offset + 40));
-	table.yMax               = static_cast<i16>(Parse::ReadU16(data, offset + 42));
-	table.macStyle           = Parse::ReadU16(data, offset + 44);
-	table.lowestRecPPEM      = Parse::ReadU16(data, offset + 46);
-	table.fontDirectionHint  = static_cast<i16>(Parse::ReadU16(data, offset + 48));
-	table.indexToLocFormat   = static_cast<i16>(Parse::ReadU16(data, offset + 50));
-	table.glyphDataFormat    = static_cast<i16>(Parse::ReadU16(data, offset + 52));
+	table.majorVersion       = static_cast<i16>(ReadU16(data, offset));
+	table.minorVersion       = static_cast<i16>(ReadU16(data, offset + 2));
+	table.fontRevision       = static_cast<i32>(ReadU32(data, offset + 4));
+	table.checkSumAdjustment = ReadU32(data, offset + 8);
+	table.magicNumber        = ReadU32(data, offset + 12);
+	table.flags              = ReadU16(data, offset + 16);
+	table.unitsPerEm         = ReadU16(data, offset + 18);
+	table.created            = (static_cast<i64>(ReadU32(data, offset + 20)) << 32
+	                         | ReadU32(data, offset + 24));
+	table.modified           = (static_cast<i64>(ReadU32(data, offset + 28)) << 32
+	                         | ReadU32(data, offset + 32));
+	table.xMin               = static_cast<i16>(ReadU16(data, offset + 36));
+	table.yMin               = static_cast<i16>(ReadU16(data, offset + 38));
+	table.xMax               = static_cast<i16>(ReadU16(data, offset + 40));
+	table.yMax               = static_cast<i16>(ReadU16(data, offset + 42));
+	table.macStyle           = ReadU16(data, offset + 44);
+	table.lowestRecPPEM      = ReadU16(data, offset + 46);
+	table.fontDirectionHint  = static_cast<i16>(ReadU16(data, offset + 48));
+	table.indexToLocFormat   = static_cast<i16>(ReadU16(data, offset + 50));
+	table.glyphDataFormat    = static_cast<i16>(ReadU16(data, offset + 52));
 
 	if (isVerbose)
 	{
@@ -499,9 +502,9 @@ HheaTable ReadHhea(
 	u32 offset)
 {
 	HheaTable table{};
-	table.ascender = Parse::ReadU16(data, offset + 4);
-	table.descender = Parse::ReadU16(data, offset + 6);
-	table.numberOfMetrics = Parse::ReadU16(data, offset + 34);
+	table.ascender = ReadU16(data, offset + 4);
+	table.descender = ReadU16(data, offset + 6);
+	table.numberOfMetrics = ReadU16(data, offset + 34);
 
 	return table;
 }
@@ -516,8 +519,8 @@ vector<HmtxEntry> ReadHmtx(
 
 	for (u16 i = 0; i < count; ++i)
 	{
-		v[i].advanceWidth = static_cast<f32>(Parse::ReadU16(data, p)); p += 2;
-		v[i].leftSideBearing = static_cast<f32>(Parse::ReadU16(data, p)); p += 2;
+		v[i].advanceWidth = static_cast<f32>(ReadU16(data, p)); p += 2;
+		v[i].leftSideBearing = static_cast<f32>(ReadU16(data, p)); p += 2;
 	}
 
 	return v;
@@ -848,7 +851,7 @@ bool ParsePreCheck(
 		return false;
 	}
 
-	thisVersion = Parse::ReadU32(versionData, offset);
+	thisVersion = ReadU32(versionData, offset);
 
 	if (path(fontPath).extension() == ".ttf"
 		&& thisVersion != TTF_VERSION)
