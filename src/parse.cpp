@@ -54,6 +54,7 @@ using std::hex;
 using std::dec;
 using std::min;
 using std::iota;
+using std::move;
 
 constexpr u32 TTF_VERSION = 0x00010000;
 constexpr u32 OTF_VERSION = 'OTTO';
@@ -61,7 +62,7 @@ constexpr u32 MAGIC_NUMBER = 0x5F0F3CF5;
 
 //Controls the curve resolution of the font,
 //higher means smoother but more vertices
-constexpr u8 CURVE_RESOLUTION = 1;
+constexpr u8 CURVE_RESOLUTION = 8;
 
 static u32 thisVersion{};
 
@@ -528,8 +529,6 @@ vector<HmtxEntry> ReadHmtx(
 
 bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 {
-	//TODO: winding correction + hole detection for complex glyphs
-
 	for (auto& glyph : glyphs)
 	{
 		if (glyph.contours.contours.empty()) continue;
@@ -658,22 +657,122 @@ bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 
 			polygons.push_back(move(flattened));
 		}
-
-		//triangulate each contour
-		for (const auto& poly : polygons)
+		
+		//fix winding
+		
+		auto ComputeSignedArea = [](const vector<vec2>& pts) -> float
+			{
+				float area = 0.0f;
+				for (size_t i = 0; i < pts.size(); ++i)
+				{
+					const vec2& a = pts[i];
+					const vec2& b = pts[(i + 1) % pts.size()];
+					area += (b.x - a.x) * (b.y + a.y);
+				}
+				return area * 0.5f;
+			};
+			
+		auto PointInPolygon = [](const vec2& p, const vector<vec2>& poly) -> bool
+			{
+				bool inside = false;
+				for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
+				{
+					const vec2& a = poly[i];
+					const vec2& b = poly[j];
+					
+					//skip horizontal edges or near-horizontal to avoid precision issues
+					if (fabs(b.y - a.y) < 1e-6f) continue;
+					
+					bool intersect =
+						((a.y > p.y) != (b.y > p.y)) 
+						&& (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x);
+						
+					if (intersect) inside = !inside;
+				}
+				return inside;
+			};
+			
+		struct ContourInfo
 		{
-			if (poly.size() < 3) continue;
+			vector<vec2> pts{};
+			float area{};
+			bool isHole{};
+			int parent{-1};
+		};
+		
+		vector<ContourInfo> infos{};
+		infos.reserve(polygons.size());
+			
+		for (auto& poly : polygons)
+		{
+			ContourInfo ci{};
+			ci.pts = poly;
+			ci.area = ComputeSignedArea(poly);
+			ci.isHole = (ci.area > 0.0f); //positive = CW = hole
+			
+			if (ci.isHole) reverse(ci.pts.begin(), ci.pts.end()); //keep all CCW
+			infos.push_back(move(ci));
+		}
+		
+		//detect nesting relationships (hole inside which outer)
+		for (size_t i = 0; i < infos.size(); ++i)
+		{
+			if (!infos[i].isHole) continue;
+			vec2 testPoint = infos[i].pts[0];
+			
+			for (size_t j = 0; j < infos.size(); ++j)
+			{
+				if (i == j || infos[j].isHole) continue;
+				
+				if (PointInPolygon(testPoint, infos[j].pts))
+				{
+					infos[i].parent = static_cast<int>(j);
+					break;
+				}
+			}
+		}
 
-			vector<u32> tris = TriangulatePolygon(poly);
+		//triangulate with hole rejection
+		for (size_t i = 0; i < infos.size(); ++i)
+		{
+			if (infos[i].isHole) continue; //skip holes
+			if (infos[i].pts.size() < 3) continue;
+
+			vector<u32> tris = TriangulatePolygon(infos[i].pts);
 			u32 vertexOffset = static_cast<u32>(glyph.vertices.size() / 2);
 
-			for (const auto& v : poly)
+			for (auto& v : infos[i].pts)
 			{
 				glyph.vertices.push_back(v.x);
 				glyph.vertices.push_back(v.y);
 			}
-
-			for (u32 i : tris) glyph.indices.push_back(vertexOffset + i);
+			
+			//test every triangle's centroid against all holes belonging to this outer
+			for (size_t t = 0; t + 2 < tris.size(); t+= 3)
+			{
+				vec2 a = infos[i].pts[tris[t + 0]];
+				vec2 b = infos[i].pts[tris[t + 1]];
+				vec2 c = infos[i].pts[tris[t + 2]];
+				vec2 centroid = (a + b + c) / 3.0f;
+				
+				bool insideHole{};
+				for (const auto& h : infos)
+				{
+					if (!h.isHole || h.parent != (int)i) continue;
+					if (PointInPolygon(centroid, h.pts))
+					{
+						insideHole = true;
+						break;
+					}
+				}
+				
+				if (!insideHole)
+				{
+					glyph.indices.push_back(vertexOffset + tris[t + 0]);
+					glyph.indices.push_back(vertexOffset + tris[t + 1]);
+					glyph.indices.push_back(vertexOffset + tris[t + 2]);
+				}
+			}
 		}
 	}
 
@@ -739,11 +838,12 @@ bool ExportKFont(
 
 		//vertices
 		WriteStr("VERT", 4);
-		u32 vertexCount = static_cast<u32>(glyph.vertices.size());
+		u32 vertexCount = static_cast<u32>(glyph.vertices.size() / 2);
 		WriteU32(vertexCount);
 		for (u32 i = 0; i < vertexCount; ++i)
 		{
-			WriteF32(glyph.vertices[i]);
+			WriteF32(glyph.vertices[i * 2]);
+			WriteF32(glyph.vertices[i * 2 + 1]);
 		}
 
 		//indices
