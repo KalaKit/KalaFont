@@ -425,7 +425,11 @@ GlyphContours ParseSimpleGlyph(
 			else
 			{
 				if (f & GLYPH_X_SAME_OR_POS_SHORT) dx = 0;
-				else dx = static_cast<i16>(ReadU16(data, p)); p += 2;
+				else
+				{
+					dx = static_cast<i16>(ReadU16(data, p));
+					p += 2;
+				}
 			}
 
 			x += dx;
@@ -453,7 +457,11 @@ GlyphContours ParseSimpleGlyph(
 			else
 			{
 				if (f & GLYPH_Y_SAME_OR_POS_SHORT) dy = 0;
-				else dy = static_cast<i16>(ReadU16(data, p)); p += 2;
+				else
+				{
+					dy = static_cast<i16>(ReadU16(data, p));
+					p += 2;
+				}
 			}
 
 			y += dy;

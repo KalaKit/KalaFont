@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <sstream>
 #include <numeric>
+#include <unordered_set>
 
+#include "KalaHeaders/core_utils.hpp"
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/file_utils.hpp"
 #include "KalaHeaders/math_utils.hpp"
@@ -55,6 +57,8 @@ using std::dec;
 using std::min;
 using std::iota;
 using std::move;
+using std::isfinite;
+using std::unordered_set;
 
 constexpr u32 TTF_VERSION = 0x00010000;
 constexpr u32 OTF_VERSION = 'OTTO';
@@ -62,7 +66,10 @@ constexpr u32 MAGIC_NUMBER = 0x5F0F3CF5;
 
 //Controls the curve resolution of the font,
 //higher means smoother but more vertices
-constexpr u8 CURVE_RESOLUTION = 8;
+constexpr u8 CURVE_RESOLUTION = 16;
+
+//Prevent absurdly high vertice counts per glyph
+constexpr u16 MAX_VERTICES = 8192;
 
 static u32 thisVersion{};
 
@@ -226,7 +233,7 @@ void ParseAny(
 	if (parsedData.empty())
 	{
 		Log::Print(
-			"Failed to parse " + fontType + " font!",
+			"Failed to parse " + correctFontPath.string() + " font!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -239,7 +246,7 @@ void ParseAny(
 	if (!geometryResult)
 	{
 		Log::Print(
-			"Failed to generate geometry for font " + fontType + "!",
+			"Failed to generate geometry for font " + correctFontPath.string() + "!",
 			"PARSE",
 			LogType::LOG_ERROR,
 			2);
@@ -271,20 +278,20 @@ void ParseAny(
 
 	for (auto& glyph : parsedData)
 	{
-		if (glyph.vertices.size() > 512)
+		if (glyph.vertices.size() > MAX_VERTICES)
 		{
 			Log::Print(
-				"Font " + fontType + " exceeded 512 vertices for glyph '" + to_string(glyph.glyphIndex) + "'!",
+				"Font " + correctFontPath.string() + " exceeded 8192 vertices for glyph '" + to_string(glyph.glyphIndex) + "'!",
 				"PARSE",
 				LogType::LOG_ERROR,
 				2);
 
 			return;
 		}
-		if (glyph.indices.size() > 512)
+		if (glyph.indices.size() > MAX_VERTICES)
 		{
 			Log::Print(
-				"Font " + fontType + " exceeded 512 indices for glyph '" + to_string(glyph.glyphIndex) + "'!",
+				"Font " + correctFontPath.string() + " exceeded 8192 indices for glyph '" + to_string(glyph.glyphIndex) + "'!",
 				"PARSE",
 				LogType::LOG_ERROR,
 				2);
@@ -529,252 +536,615 @@ vector<HmtxEntry> ReadHmtx(
 
 bool TriangulateGeometry(vector<GlyphResult>& glyphs)
 {
-	for (auto& glyph : glyphs)
-	{
-		if (glyph.contours.contours.empty()) continue;
-
-		glyph.vertices.clear();
-		glyph.indices.clear();
-
-		//ear-clipping lambda
-		auto TriangulatePolygon = [](const vector<vec2>& poly) -> vector<u32>
+	constexpr float eps = 1e-6f;
+	constexpr float eps_area = 1e-7f;
+	
+	auto almost_eq = [&](
+		const vec2& a, 
+		const vec2& b) -> bool
+		{
+			vec2 d = a - b;
+			return fabsf(d.x) < eps
+				&& fabsf(d.y) < eps;
+		};
+		
+	//Cross of (b-a) x (c-b)
+	auto cross2 = [&](
+		const vec2& a, 
+		const vec2& b,
+		const vec2& c) -> float
+		{
+			vec2 u = b - a;
+			vec2 v = c - b;
+			
+			return u.x * v.y - u.y * v.x;
+		};
+		
+	//Shoelace - CCW > 0
+	auto SignedArea = [&](const vector<vec2>& pts) -> float
+		{
+			if (pts.size() < 3) return 0.0f;
+			double A = 0.0;
+			
+			for (size_t i = 0, j = pts.size() - 1; i < pts.size(); j = i++)
 			{
-				vector<u32> indices{};
-				const size_t n = poly.size();
-				if (n < 3) return indices;
-
-				vector<u32> verts(n);
-				iota(verts.begin(), verts.end(), 0);
-
-				auto area = [&](const vec2& a, const vec2& b, const vec2& c)
-					{
-						return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-					};
-
-				auto inside = [&](const vec2& A, const vec2& B, const vec2& C, const vec2& P)
-					{
-						return 
-							area(A, B, P) > 0 
-							&& area(B, C, P) > 0 
-							&& area(C, A, P) > 0;
-					};
-
-				size_t count = 2 * n;
-				while (verts.size() > 2 && count--)
+				A += (double)pts[j].x
+					* (double)pts[i].y
+					- (double)pts[i].x
+					* (double)pts[j].y;
+			}
+			
+			return (float)(0.5 * A);
+		};
+		
+	//Ray-cast with standard parity toggle
+	auto PointInPolygon = [&](
+		const vec2& p,
+		const vector<vec2>& poly) -> bool
+		{
+			bool inside{};
+			
+			for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
+			{
+				const vec2& a = poly[i];
+				const vec2& b = poly[j];
+				bool condY = ((a.y > p.y) != (b.y > p.y));
+				
+				if (condY)
 				{
-					bool earFound{};
-
-					for (size_t i = 0; i < verts.size(); ++i)
+					float dy = b.y - a.y;
+					if (fabsf(dy) > eps)
 					{
-						u32 i0 = verts[(i + verts.size() - 1) % verts.size()];
-						u32 i1 = verts[i];
-						u32 i2 = verts[(i + 1) % verts.size()];
-
-						const vec2& A = poly[i0];
-						const vec2& B = poly[i1];
-						const vec2& C = poly[i2];
-
-						if (area(A, B, C) <= 0) continue; //reflex
-
-						bool anySide{};
-
-						for (u32 j : verts)
+						float xInt = a.x + (b.x - a.x) * ((p.y - a.y) / dy);
+						if (p.x < xInt) inside = !inside;
+					}
+				}
+			}
+			
+			return inside;
+		};
+		
+	auto polygon_centroid = [&](const vector<vec2>& p) -> vec2
+		{
+			DEBUG_ASSERT(p.size() >= 3);
+			
+			double A{};
+			double cx{};
+			double cy{};
+			
+			for (size_t i = 0, j = p.size() - 1; i < p.size(); j = i++)
+			{
+				double cross = 
+					(double)p[j].x
+					* (double)p[i].y
+					- (double)p[i].x
+					* (double)p[j].y;
+					
+			    A += cross;
+					
+				cx += ((double)p[j].x + (double)p[i].x) * cross;
+				cy += ((double)p[j].y + (double)p[i].y) * cross;
+			}
+			
+			A *= 0.5;
+			if (fabs(A) < 1e-12) return p[0]; //fallback if degenerate
+			return vec2{ (float)(cx / (6.0 * A)), (float)(cy / (6.0 * A)) };
+		};
+	
+	auto dedupe_consecutive = [&](vector<vec2>& pts)
+		{
+			if (pts.empty()) return;
+			
+			vector<vec2> out{};
+			out.reserve(pts.size());
+			out.push_back(pts[0]);
+			for (size_t i = 1; i < pts.size(); ++i)
+			{
+				if (!almost_eq(pts[i], out.back())) out.push_back(pts[i]);
+			}
+			
+			//close ring duplicate
+			if (out.size() > 1
+				&& almost_eq(out.front(), out.back()))
+			{
+				out.pop_back();
+			}
+			
+			pts.swap(out);
+		};
+		
+	auto prune_colinear = [&](vector<vec2>& pts)
+		{
+			if (pts.size() < 3) return;
+			
+			vector<vec2> out{};
+			out.reserve(pts.size());
+			for (size_t i = 0; i < pts.size(); ++i)
+			{
+				const vec2& a = pts[(i + pts.size() - 1) % pts.size()];
+				const vec2& b = pts[i];
+				const vec2& c = pts[(i + 1) % pts.size()];
+				
+				if (fabsf(cross2(a, b, c)) > eps) out.push_back(b);
+				else {} //drop colinear middle point????
+			}
+			
+			//if everything collapsed (degenerate), keep original
+			if (out.size() >= 3) pts.swap(out);
+		};
+		
+	auto cleanup_polygon = [&](vector<vec2>& poly)
+		{
+			dedupe_consecutive(poly);
+			prune_colinear(poly);
+			
+			//enforce ccw for triangulation
+			if (SignedArea(poly) < 0.0f) reverse(poly.begin(), poly.end());
+		};
+		
+	auto TriangulatePolygon = [&](const vector<vec2>& poly) -> vector<u32>
+		{
+			vector<u32> indices{};
+			const size_t n = poly.size();
+			if (n < 3) return indices;
+			
+			vector<u32> verts(n);
+			iota(verts.begin(), verts.end(), 0);
+			
+			auto tri_area = [&](
+				const vec2& a, 
+				const vec2& b, 
+				const vec2& c)
+				{
+					return (b.x - a.x)
+						* (c.y - a.y)
+						- (b.y - a.y)
+						* (c.x - a.x);
+				};
+				
+			//Allow points on edge with small epsilon
+			auto inside = [&](
+				const vec2& A,
+				const vec2& B,
+				const vec2& C,
+				const vec2& P)
+				{
+					float a1 = tri_area(A, B, P);
+					float a2 = tri_area(B, C, P);
+					float a3 = tri_area(C, A, P);
+					return (a1 >= -eps_area)
+						&& (a2 >= -eps_area)
+						&& (a3 >= -eps_area);
+				};
+				
+			//conservative
+			size_t watchdog = 3 * n;
+			while (verts.size() > 2 && watchdog--)
+			{
+				bool earFound{};
+				
+				for (size_t i = 0; i < verts.size(); ++i)
+				{
+					u32 i0 = verts[(i + verts.size() - 1) % verts.size()];
+					u32 i1 = verts[i];
+					u32 i2 = verts[(i + 1) % verts.size()];
+					
+					const vec2& A = poly[i0];
+					const vec2& B = poly[i1];
+					const vec2& C = poly[i2];
+					
+					float Aarea = tri_area(A, B, C);
+					if (Aarea <= eps_area) continue; //reflex or tiny
+					
+					bool anyInside{};
+					for (u32 j : verts)
+					{
+						if (j == i0
+							|| j == i1
+							|| j == i2)
 						{
-							if (j == i0
-								|| j == i1
-								|| j == i2)
-							{
-								continue;
-							}
-
-							if (inside(A, B, C, poly[j]))
-							{
-								anySide = true;
-								break;
-							}
+							continue;	
 						}
-
-						if (!anySide)
+						if (inside(A, B, C, poly[j]))
 						{
-							indices.push_back(i0);
-							indices.push_back(i1);
-							indices.push_back(i2);
-							verts.erase(verts.begin() + i);
-							earFound = true;
+							anyInside = true;
 							break;
 						}
 					}
-					if (!earFound) break;
-				}
-
-				return indices;
-			};
-
-		//flatten quadratic beziers into polygons
-
-		vector<vector<vec2>> polygons{};
-
-		for (const auto& contour : glyph.contours.contours)
-		{
-			vector<vec2> flattened{};
-			if (contour.empty()) continue;
-
-			size_t count = contour.size();
-			auto GetPoint = [&](size_t idx) -> const GlyphPoint&
-				{
-					return contour[idx % count];
-				};
-
-			for (size_t i = 0; i < count; ++i)
-			{
-				const GlyphPoint& p0 = GetPoint(i);
-				const GlyphPoint& p1 = GetPoint(i + 1);
-
-				if (p0.onCurve
-					&& p1.onCurve)
-				{
-					flattened.push_back(p0.size);
-				}
-				else if (p0.onCurve
-					&& !p1.onCurve)
-				{
-					const GlyphPoint& p2 = GetPoint(i + 2);
-					vec2 nextOn = p2.onCurve ? p2.size : (p1.size + p2.size) * 0.5f;
-
-					for (int s = 0; s <= CURVE_RESOLUTION; ++s)
-					{
-						f32 t = static_cast<f32>(s) / CURVE_RESOLUTION;
-						f32 u = 1.0f - t;
-
-						vec2 pt =
-							(u * u) * p0.size
-							+ (2.0f * u * t) * p1.size
-							+ (t * t) * nextOn;
-						flattened.push_back(pt);
-					}
-				}
-			}
-
-			polygons.push_back(move(flattened));
-		}
-		
-		//fix winding
-		
-		auto ComputeSignedArea = [](const vector<vec2>& pts) -> float
-			{
-				float area = 0.0f;
-				for (size_t i = 0; i < pts.size(); ++i)
-				{
-					const vec2& a = pts[i];
-					const vec2& b = pts[(i + 1) % pts.size()];
-					area += (b.x - a.x) * (b.y + a.y);
-				}
-				return area * 0.5f;
-			};
-			
-		auto PointInPolygon = [](const vec2& p, const vector<vec2>& poly) -> bool
-			{
-				bool inside = false;
-				for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++)
-				{
-					const vec2& a = poly[i];
-					const vec2& b = poly[j];
+					if (anyInside) continue;
 					
-					//skip horizontal edges or near-horizontal to avoid precision issues
-					if (fabs(b.y - a.y) < 1e-6f) continue;
-					
-					bool intersect =
-						((a.y > p.y) != (b.y > p.y)) 
-						&& (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x);
-						
-					if (intersect) inside = !inside;
+					//ear
+					indices.push_back(i0);
+					indices.push_back(i1);
+					indices.push_back(i2);
+					verts.erase(verts.begin() + i);
+					earFound = true;
+					break;
 				}
-				return inside;
-			};
-			
-		struct ContourInfo
-		{
-			vector<vec2> pts{};
-			float area{};
-			bool isHole{};
-			int parent{-1};
-		};
-		
-		vector<ContourInfo> infos{};
-		infos.reserve(polygons.size());
-			
-		for (auto& poly : polygons)
-		{
-			ContourInfo ci{};
-			ci.pts = poly;
-			ci.area = ComputeSignedArea(poly);
-			ci.isHole = (ci.area > 0.0f); //positive = CW = hole
-			
-			if (ci.isHole) reverse(ci.pts.begin(), ci.pts.end()); //keep all CCW
-			infos.push_back(move(ci));
-		}
-		
-		//detect nesting relationships (hole inside which outer)
-		for (size_t i = 0; i < infos.size(); ++i)
-		{
-			if (!infos[i].isHole) continue;
-			vec2 testPoint = infos[i].pts[0];
-			
-			for (size_t j = 0; j < infos.size(); ++j)
-			{
-				if (i == j || infos[j].isHole) continue;
 				
-				if (PointInPolygon(testPoint, infos[j].pts))
+				if (!earFound)
 				{
-					infos[i].parent = static_cast<int>(j);
+					//try a mild cleanup - if we got stuck,
+					//drop the least significant point
+					if (verts.size() > 3)
+					{
+						size_t kill{};
+						float best = FLT_MAX;
+						
+						for (size_t k = 0; k < verts.size(); ++k)
+						{
+							const vec2& a = poly[verts[(k + verts.size() -1) % verts.size()]];
+							const vec2& b = poly[verts[k]];
+							const vec2& c = poly[verts[(k + 1) % verts.size()]];
+							float area = fabsf(tri_area(a, b, c));
+							if (area < best)
+							{
+								best = area;
+								kill = k;
+							}
+						}
+						
+						verts.erase(verts.begin() + kill);
+						continue;
+					}
+					
+					Log::Print(
+						"TriangulatePolygon: No ear found for " + to_string(verts.size()) + " verts", 
+						"FONT", 
+						LogType::LOG_ERROR,
+						2);
+					
+					break;
+				}
+				
+				if (watchdog % 500 == 0)
+				{
+					Log::Print(
+						"TriangulatePolygon watchdog tick " + to_string(watchdog), 
+						"FONT",
+						LogType::LOG_DEBUG);	
+				}
+
+				if (watchdog == 0)
+				{
+					Log::Print(
+						"TriangulatePolygon watchdog expired! Possible infinite loop.",
+						"FONT",
+						LogType::LOG_ERROR);
 					break;
 				}
 			}
-		}
-
-		//triangulate with hole rejection
-		for (size_t i = 0; i < infos.size(); ++i)
+			
+			DEBUG_ASSERT(indices.size() % 3 == 0);
+			
+			return indices;
+		};
+		
+	//flatten a glyph contour (quadratic beziers) into a clean ccw polygon
+	auto FlattenContour = [&](const vector<GlyphPoint>& contour) -> vector<vec2>
 		{
-			if (infos[i].isHole) continue; //skip holes
-			if (infos[i].pts.size() < 3) continue;
-
-			vector<u32> tris = TriangulatePolygon(infos[i].pts);
-			u32 vertexOffset = static_cast<u32>(glyph.vertices.size() / 2);
-
-			for (auto& v : infos[i].pts)
+			if (contour.empty()) return{};
+			
+			//normalize start to on-curve. if first is off-curve then prepend implied on-curve
+			
+			vector<GlyphPoint> norm = contour;
+			if (!norm.front().onCurve)
 			{
-				glyph.vertices.push_back(v.x);
-				glyph.vertices.push_back(v.y);
+				const GlyphPoint& last = norm.back();
+				GlyphPoint implied{};
+				implied.onCurve = true;
+				implied.size = (last.size + norm.front().size) * 0.5f;
+				norm.insert(norm.begin(), implied);
 			}
 			
-			//test every triangle's centroid against all holes belonging to this outer
-			for (size_t t = 0; t + 2 < tris.size(); t+= 3)
+			//insert implied on-curve between consecutive off-curves
+			
+			vector<GlyphPoint> pts{};
+			pts.reserve(norm.size() * 2);
+			for (size_t i = 0; i < norm.size(); ++i)
 			{
-				vec2 a = infos[i].pts[tris[t + 0]];
-				vec2 b = infos[i].pts[tris[t + 1]];
-				vec2 c = infos[i].pts[tris[t + 2]];
-				vec2 centroid = (a + b + c) / 3.0f;
+				const auto& a = norm[i];
+				const auto& b = norm[(i + 1) % norm.size()];
+				pts.push_back(a);
 				
-				bool insideHole{};
-				for (const auto& h : infos)
+				if (!a.onCurve
+					&& !b.onCurve)
 				{
-					if (!h.isHole || h.parent != (int)i) continue;
-					if (PointInPolygon(centroid, h.pts))
+					GlyphPoint mid{};
+					mid.onCurve = true;
+					mid.size = (a.size + b.size) * 0.5f;
+					pts.push_back(mid);
+				}
+			}
+			
+			//emit helper that avoids duplicates
+			
+			vector<vec2> out{};
+			out.reserve(pts.size() * (CURVE_RESOLUTION + 1));
+			auto emit = [&](const vec2& p)
+				{
+					if (out.empty()
+						|| !almost_eq(out.back(), p))
 					{
-						insideHole = true;
-						break;
+						out.push_back(p);	
+					}
+				};
+				
+			//avoid re-emitting A if it equals the last output point
+			
+			auto sampleQuad = [&](
+				const vec2& A,
+				const vec2& B,
+				const vec2& C)
+				{
+					for (int s = 0; s <= CURVE_RESOLUTION; ++s)
+					{
+						float t = (float)s / (float)CURVE_RESOLUTION;
+						float u = 1.0f - t;
+						vec2 p = 
+							(u * u) * A
+							+ (2.0f * u * t) * B
+							+ (t * t) * C;
+							
+						emit(p);
+					}
+				};
+				
+			size_t N = pts.size();
+			vec2 prevOn = pts.back().onCurve
+				? pts.back().size
+				: (pts.back().size + pts[0].size) * 0.5f;
+				
+			for (size_t i = 0; i < N; ++i)
+			{
+				const GlyphPoint& a = pts[i];
+				const GlyphPoint& b = pts[(i + 1) % N];
+				
+				if (a.onCurve
+					&& b.onCurve)
+				{
+					emit(a.size);	
+					prevOn = a.size;
+					continue;
+				}
+				else if (a.onCurve
+					&& !b.onCurve)
+				{
+					const GlyphPoint& cRaw = pts[(i + 2) % N];
+					vec2 nextOn = cRaw.onCurve
+						? cRaw.size
+						: (b.size + cRaw.size) * 0.5f;
+					
+					sampleQuad(a.size, b.size, nextOn);
+					prevOn = nextOn;
+					++i;
+					continue;
+				}
+				else if (!a.onCurve
+					&& b.onCurve)
+				{
+					sampleQuad(prevOn, a.size, b.size);
+					prevOn = b.size;
+					continue;
+				}
+				else { Log::Print("Reached unexpected branch while flattening contour!"); }
+			}
+			
+			//close ring by ensuring the start is not duplicated
+			if (!out.empty()
+				&& almost_eq(out.front(), out.back()))
+			{
+				out.pop_back();	
+			}
+			
+			//clean up + enforce CCW
+			cleanup_polygon(out);
+			return out;
+		};
+		
+		struct ContourInfo
+		{
+			vector<vec2> pts{}; //ccw for triangulation
+			float area{};       //signed area before normalization (shoelace, CCW > 0)
+			bool isHole{};      //set later from containment depth (odd depth = hole)
+			int parent = -1;    //which outer this hole belongs to
+		};
+		
+		for (auto& glyph : glyphs)
+		{
+			if (glyph.contours.contours.empty()) continue;
+			
+			glyph.vertices.clear();
+			glyph.indices.clear();
+			
+			//flatten contours
+			
+			vector<ContourInfo> infos{};
+			infos.reserve(glyph.contours.contours.size());
+			
+			for (const auto& contour : glyph.contours.contours)
+			{
+				auto poly = FlattenContour(contour);
+				DEBUG_ASSERT(!poly.empty());
+				DEBUG_ASSERT(poly.size() >= 3);
+				if (poly.size() < 3) continue;
+				
+				float Ar = SignedArea(poly);
+				DEBUG_ASSERT(isfinite(Ar));
+				if (Ar < 0.0f)
+				{
+					reverse(poly.begin(), poly.end());
+					Ar = -Ar;
+				}
+				
+				ContourInfo ci{};
+				ci.pts = move(poly);
+				ci.area = Ar;
+				ci.isHole = false;
+				infos.push_back(move(ci));
+			}
+			
+			//classify all contours purely by containment depth
+			
+			DEBUG_ASSERT(!infos.empty());
+			for (size_t i = 0; i < infos.size(); ++i)
+			{
+				DEBUG_ASSERT(infos[i].pts.size() >= 3);
+				DEBUG_ASSERT(isfinite(infos[i].area));
+				
+				infos[i].parent = -1;
+				int bestParent = -1;
+				float bestArea = FLT_MAX;
+				
+				for (size_t j = 0; j < infos.size(); ++j)
+				{
+					if (i == j) continue;
+					if (infos[j].pts.size() < 3) continue;
+					
+					vec2 probe = polygon_centroid(infos[i].pts);
+					if (PointInPolygon(probe, infos[j].pts))
+					{
+						float absArea = fabsf(infos[j].area);
+						if (absArea < bestArea)
+						{
+							bestArea = absArea;
+							bestParent = static_cast<int>(j);
+						}
 					}
 				}
 				
-				if (!insideHole)
+				infos[i].parent = bestParent;
+			}
+			
+			for (size_t i = 0; i < infos.size(); ++i)
+			{
+				if (infos[i].parent != -1)
 				{
+					DEBUG_ASSERT(infos[i].parent < (int)infos.size());
+					DEBUG_ASSERT(infos[i].parent != (int)i);
+				}
+			}
+			
+			for (size_t i = 0; i < infos.size(); ++i)
+			{
+				Log::Print(
+					"Contour " + to_string(i) + "\n" +
+					"  area:   " + to_string(infos[i].area) + "\n" +
+					"  parent: " + to_string(infos[i].parent) + "\n" +
+					"  type:   " + (infos[i].isHole ? "hole" : "outer"),
+					"FONT",
+					LogType::LOG_DEBUG);
+			}
+			
+			//determine hole status based on nesting depth
+			for (auto& ci : infos)
+			{
+				int depth{};
+				int p = ci.parent;
+				unordered_set<int> visited{};
+				
+				while (p != -1)
+				{
+					if (visited.count(p))
+					{
+						Log::Print(
+							"Circular parent chain detected at contour '" + to_string(p) + "'!", 
+							"FONT", 
+							LogType::LOG_ERROR,
+							2);
+							
+						p = -1;
+						break;
+					}
+					visited.insert(p);
+					
+					++depth;
+					
+					DEBUG_ASSERT(depth < 32);
+					
+					if (p < 0
+						|| p >= (int)infos.size())
+					{
+						Log::Print(
+							"Invalid parent index '" + to_string(p) + "'!", 
+							"FONT", 
+							LogType::LOG_ERROR,
+							2);
+					}
+					
+					p = infos[p].parent;
+				}
+				ci.isHole = (depth % 2 == 1);
+			}
+			
+			//triangulate each outer, discard triangles
+			//whose centroid falls in any of its holes
+			for (size_t oi = 0; oi < infos.size(); ++oi)
+			{
+				if (infos[oi].isHole) continue;
+				auto& outer = infos[oi].pts;
+				if (outer.size() < 3) continue;
+				
+				//triangulate the cleaned CCW outer
+				vector<u32> tris = TriangulatePolygon(outer);
+				
+				DEBUG_ASSERT(!tris.empty() || outer.size() < 3);
+				for (auto idx : tris)
+				{
+					DEBUG_ASSERT(idx < outer.size());
+				}
+				
+				u32 vertexOffset = (u32)(glyph.vertices.size() / 2);
+				
+				DEBUG_ASSERT((glyph.vertices.size() % 2) == 0);
+				DEBUG_ASSERT((glyph.indices.size() % 3) == 0);
+				
+				//emit vertices for this outer
+				for (const auto& v : outer)
+				{
+					glyph.vertices.push_back(v.x);
+					glyph.vertices.push_back(v.y);
+				}
+				
+				//build list of holes belonging to this outer
+				
+				vector<const vector<vec2>*> holes{};
+				holes.reserve(infos.size());
+				for (auto& h : infos)
+				{
+					if (!h.isHole ||h.parent != (int)oi) continue;
+					holes.push_back(&h.pts);
+				}
+				
+				//keep triangles whose centroid is not inside any hole
+				for (size_t t = 0; t + 2 < tris.size(); t += 3)
+				{
+					const vec2 a = outer[tris[t + 0]];
+					const vec2 b = outer[tris[t + 1]];
+					const vec2 c = outer[tris[t + 2]];
+					const vec2 centroid = (a + b + c) * (1.0f / 3.0f);
+					
+					bool inHole{};
+					for (auto hp : holes)
+					{
+						if (PointInPolygon(centroid, *hp))
+						{
+							inHole = true;
+							break;
+						}
+					}
+					if (inHole) continue;
+					
+					DEBUG_ASSERT(vertexOffset + tris[t + 0] < glyph.vertices.size() / 2);
+					DEBUG_ASSERT(vertexOffset + tris[t + 1] < glyph.vertices.size() / 2);
+					DEBUG_ASSERT(vertexOffset + tris[t + 2] < glyph.vertices.size() / 2);
+					
 					glyph.indices.push_back(vertexOffset + tris[t + 0]);
 					glyph.indices.push_back(vertexOffset + tris[t + 1]);
 					glyph.indices.push_back(vertexOffset + tris[t + 2]);
 				}
-			}
+			} 
 		}
-	}
 
 	return true;
 }
