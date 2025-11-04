@@ -16,6 +16,7 @@
 
 #include "parse.hpp"
 #include "core.hpp"
+#include "export.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
@@ -23,6 +24,8 @@ using KalaHeaders::HasAnyNonNumber;
 using KalaHeaders::HasAnyWhiteSpace;
 
 using KalaFont::Core;
+using KalaFont::Export;
+using KalaFont::GlyphBlock;
 
 using std::vector;
 using std::string;
@@ -36,7 +39,6 @@ using std::ostringstream;
 using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
-using i16 = int16_t;
 
 constexpr u32 MAX_SIZE_BYTES = 1073741824; //1024 MB
 constexpr u16 MAX_GLYPH_COUNT = 1024;
@@ -49,43 +51,6 @@ constexpr u8 MAX_SUPERSAMPLE = 3;          //multiplier
 static void ParseAny(
 	const vector<string>& params,
 	bool isVerbose);
-	
-//At the top of the kgm binary
-struct KalaTypeFont_TopHeader
-{
-	char magic[4] = { 'K', 'T', 'F', '\0' };
-	u8 version = 1;
-	u8 type;                       //1 = bitmap, 2 = glyph
-	u16 glyphHeight;               //height of all glyphs in pixels
-	u32 glyphCount;                //number of glyphs
-	u32 glyphTableSize;            //glyph search table size in bytes
-	u32 payloadSize;               //glyph payload block size in bytes
-};
-
-//Helps find glyphs fast
-struct KalaTypeFont_GlyphTable
-{
-	u32 charCode;    //unicode codepoint
-	u32 blockOffset; //absolute offset from start of file
-	u32 blockSize;   //size of the glyph block (info + payload)
-};
-	
-//Info + payload of each glyph
-struct KalaTypeFont_GlyphBlock
-{
-	u32 charCode;      //unicode codepoint
-	u16 width;         //bmp.width
-	u16 height;        //bmp.rows
-	i16 pitch;         //bmp.pitch (can be negative for some formats)
-	i16 bearingX;      //slot->bitmap_left
-	i16 bearingY;      //slot->bitmap_top
-	u16 advance;       //slot->advance.x >> 6
-	u32 dataOffset;    //offset to the glyph's pixel data in the atlas/file
-	u32 dataSize{};    //size of this glyph's bitmap
-	vector<u8> bitmap; //store bitmap pixels
-};
-
-static vector<KalaTypeFont_GlyphBlock> glyphBlocks{};
 
 namespace KalaFont
 {
