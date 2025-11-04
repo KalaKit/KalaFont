@@ -14,6 +14,7 @@
 
 #include "core.hpp"
 #include "command.hpp"
+#include "parse.hpp"
 
 using KalaHeaders::Log;
 using KalaHeaders::LogType;
@@ -26,6 +27,7 @@ using KalaHeaders::TokenizeString;
 using KalaFont::Core;
 using KalaFont::Command;
 using KalaFont::CommandManager;
+using KalaFont::Parse;
 
 using std::cin;
 using std::getline;
@@ -37,6 +39,7 @@ using std::filesystem::current_path;
 using std::filesystem::path;
 
 static void AddBuiltInCommands();
+static void AddExternalCommands();
 
 //Built-in command for listing all commands
 static void Command_Help(const vector<string>& params);
@@ -60,6 +63,7 @@ namespace KalaFont
 	void Core::Run(int argc, char* argv[])
 	{
 		AddBuiltInCommands();
+		AddExternalCommands();
 
 		//run the passed command if one was passed
 		if (argc > 1)
@@ -189,6 +193,45 @@ void AddBuiltInCommands()
 	CommandManager::AddCommand(cmd_clear);
 	CommandManager::AddCommand(cmd_exit);
 	CommandManager::AddCommand(cmd_qe);
+}
+
+void AddExternalCommands()
+{
+	ostringstream msgParse{};
+	
+	msgParse << "Compiles ttf and otf fonts to ktf for runtime use with the help of FreeType.\n"
+		<< "    Second parameter must be compile type (bitmap or glyph)\n"
+		<< "    Third parameter must be glyph height - how tall each glyph will be, their width is adjusted according to height\n"
+		<< "    Fourth parameter must be compression quality (1 to 3, higher is better quality but bigger size)\n"
+		<< "    Fifth parameter must be origin font path (.ttf or .otf)\n"
+		<< "    Sixth parameter must be target path (.ktf)";
+	
+	ostringstream msgVerboseParse{};
+	
+	msgVerboseParse << "Compiles ttf and otf fonts to ktf for runtime use with the help of FreeType with additional verbose logging.\n"
+		<< "    Second parameter must be compile type (bitmap or glyph)\n"
+		<< "    Third parameter must be glyph height - how tall each glyph will be, their width is adjusted according to height\n"
+		<< "    Fourth parameter must be compression quality (1 to 3, higher is better quality but bigger size)\n"
+		<< "    Fifth parameter must be origin font path (.ttf or .otf)\n"
+		<< "    Sixth parameter must be target path (.ktf)";
+	
+	Command cmd_parse
+	{
+		.primary = { "parse", "p" },
+		.description = msgParse.str(),
+		.paramCount = 6,
+		.targetFunction = Parse::Command_Parse
+	};
+	Command cmd_verboseparse
+	{
+		.primary = { "vp" },
+		.description = msgVerboseParse.str(),
+		.paramCount = 6,
+		.targetFunction = Parse::Command_VerboseParse
+	};
+
+	CommandManager::AddCommand(cmd_parse);
+	CommandManager::AddCommand(cmd_verboseparse);
 }
 
 void Command_Help(const vector<string>& params)
