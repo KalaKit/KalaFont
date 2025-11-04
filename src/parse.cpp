@@ -6,6 +6,10 @@
 #include <vector>
 #include <string>
 #include <filesystem>
+#include <sstream>
+
+#include "FreeType/include/ft2build.h"
+#include FT_FREETYPE_H
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/string_utils.hpp"
@@ -22,14 +26,17 @@ using KalaFont::Core;
 
 using std::vector;
 using std::string;
+using std::to_string;
 using std::filesystem::current_path;
 using std::filesystem::path;
 using std::filesystem::weakly_canonical;
 using std::filesystem::is_regular_file;
+using std::ostringstream;
 
 using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
+using i16 = int16_t;
 
 constexpr u32 MAX_SIZE_BYTES = 1073741824; //1024 MB
 constexpr u16 MAX_GLYPH_COUNT = 1024;
@@ -42,6 +49,43 @@ constexpr u8 MAX_SUPERSAMPLE = 3;          //multiplier
 static void ParseAny(
 	const vector<string>& params,
 	bool isVerbose);
+	
+//At the top of the kgm binary
+struct KalaTypeFont_TopHeader
+{
+	char magic[4] = { 'K', 'T', 'F', '\0' };
+	u8 version = 1;
+	u8 type;                       //1 = bitmap, 2 = glyph
+	u16 glyphHeight;               //height of all glyphs in pixels
+	u32 glyphCount;                //number of glyphs
+	u32 glyphTableSize;            //glyph search table size in bytes
+	u32 payloadSize;               //glyph payload block size in bytes
+};
+
+//Helps find glyphs fast
+struct KalaTypeFont_GlyphTable
+{
+	u32 charCode;    //unicode codepoint
+	u32 blockOffset; //absolute offset from start of file
+	u32 blockSize;   //size of the glyph block (info + payload)
+};
+	
+//Info + payload of each glyph
+struct KalaTypeFont_GlyphBlock
+{
+	u32 charCode;      //unicode codepoint
+	u16 width;         //bmp.width
+	u16 height;        //bmp.rows
+	i16 pitch;         //bmp.pitch (can be negative for some formats)
+	i16 bearingX;      //slot->bitmap_left
+	i16 bearingY;      //slot->bitmap_top
+	u16 advance;       //slot->advance.x >> 6
+	u32 dataOffset;    //offset to the glyph's pixel data in the atlas/file
+	u32 dataSize{};    //size of this glyph's bitmap
+	vector<u8> bitmap; //store bitmap pixels
+};
+
+static vector<KalaTypeFont_GlyphBlock> glyphBlocks{};
 
 namespace KalaFont
 {
@@ -60,6 +104,23 @@ void ParseAny(
 	const vector<string>& params,
 	bool isVerbose)
 {
+	FT_Library ft{};
+	if (FT_Init_FreeType(&ft))
+	{
+		Log::Print(
+			"Failed to initialize FreeType!",
+			"COMPILE_FONT",
+			LogType::LOG_ERROR,
+			2);
+		
+		return;
+	}
+	
+	Log::Print(
+		"Initialized FreeType.",
+		"COMPILE_FONT",
+		LogType::LOG_INFO);
+	
 	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
 	path correctOrigin = weakly_canonical(path(Core::currentDir) / params[4]);
 	path correctTarget = weakly_canonical(path(Core::currentDir) / params[5]);
@@ -174,4 +235,81 @@ void ParseAny(
 		"Starting to compile font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "'",
 		"COMPILE_FONT",
 		LogType::LOG_INFO);
+		
+	FT_Face face{};
+	if (FT_New_Face(ft, correctOrigin.string().c_str(), 0, &face))
+	{
+		Log::Print(
+			"FreeType failed to set new face for font '" + correctOrigin.string() + "'!",
+			"COMPILE_FONT",
+			LogType::LOG_ERROR,
+			2);
+		
+		return;
+	}
+	
+	FT_Set_Pixel_Sizes(face, 0, glyphHeight);
+	
+	FT_ULong charCode{};
+	FT_UInt glyphIndex{};
+	
+	ostringstream oss{};
+	
+	charCode = FT_Get_First_Char(face, &glyphIndex);
+	while (glyphIndex != 0)
+	{
+		if (FT_Load_Glyph(face, glyphIndex, FT_LOAD_DEFAULT) == 0
+			&& FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) == 0)
+		{
+			FT_GlyphSlot slot = face->glyph;
+			FT_Bitmap& bmp = slot->bitmap;
+			
+			if (isVerbose)
+			{
+				oss.str(""); 
+				oss.clear();
+			
+				oss << "Glyph info for '" << static_cast<char>(charCode) << "'\n"
+					<< "  width:    " << bmp.width << "\n"
+					<< "  height:   " << bmp.rows << "\n"
+					<< "  pitch:    " << bmp.pitch << "\n"
+					<< "  advance:  " << (slot->advance.x >> 6) << "\n"
+					<< "  bearingX: " << slot->bitmap_left << "\n"
+					<< "  bearingY: " << slot->bitmap_top << "\n";
+					
+				oss << "Glyph bitmap for '" << static_cast<char>(charCode) << "'\n";
+				
+				for (int y = 0; y < bmp.rows; ++y)
+				{
+					for (int x = 0; x < bmp.width; ++x)
+					{
+						oss << ((bmp.buffer[y * bmp.pitch + x] > 128) ? '#' : ' ');
+					}
+					oss << '\n';
+				}
+				
+				oss << "--------------------\n";
+					
+				Log::Print(oss.str());
+			}
+		}
+		else
+		{
+			Log::Print(
+				"FreeType failed to load glyph '" + string(1, static_cast<char>(charCode)) + "'!",
+				"COMPILE_FONT",
+				LogType::LOG_ERROR,
+				2);
+		}
+		
+		charCode = FT_Get_Next_Char(face, charCode, &glyphIndex);
+	}
+	
+	Log::Print(
+		"Finished compiling font!",
+		"COMPILE_FONT",
+		LogType::LOG_SUCCESS);
+	
+	FT_Done_Face(face);
+	FT_Done_FreeType(ft);
 }

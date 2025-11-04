@@ -20,10 +20,10 @@
 #define FREETYPE_H_
 
 
-#include <ft2build.h>
+#include <FreeType/include/ft2build.h>
 #include FT_CONFIG_CONFIG_H
-#include <freetype/fttypes.h>
-#include <freetype/fterrors.h>
+#include <FreeType/include/freetype/fttypes.h>
+#include <FreeType/include/freetype/fterrors.h>
 
 
 FT_BEGIN_HEADER
@@ -74,10 +74,10 @@ FT_BEGIN_HEADER
    *   load file `ft2build.h` first before other header files, for example
    *
    *   ```
-   *     #include <ft2build.h>
+   *     #include <FreeType/include/ft2build.h>
    *
-   *     #include <freetype/freetype.h>
-   *     #include <freetype/ftoutln.h>
+   *     #include <FreeType/include/freetype/freetype.h>
+   *     #include <FreeType/include/freetype/ftoutln.h>
    *   ```
    */
 
