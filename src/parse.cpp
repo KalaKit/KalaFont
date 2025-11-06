@@ -13,6 +13,7 @@
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/string_utils.hpp"
+#include "KalaHeaders/import_ktf.hpp"
 
 #include "parse.hpp"
 #include "core.hpp"
@@ -22,10 +23,10 @@ using KalaHeaders::Log;
 using KalaHeaders::LogType;
 using KalaHeaders::HasAnyNonNumber;
 using KalaHeaders::HasAnyWhiteSpace;
+using KalaHeaders::GlyphBlock;
 
 using KalaFont::Core;
 using KalaFont::Export;
-using KalaFont::GlyphBlock;
 
 using std::vector;
 using std::string;
@@ -279,20 +280,19 @@ void ParseAny(
 			
 			GlyphBlock glyphBlock = 
 			{
-				.charCode = charCode,
+				.charCode = static_cast<u32>(charCode),
 				.width = static_cast<u16>(bmp.width),
 				.height = static_cast<u16>(bmp.rows),
-				.pitch = static_cast<i16>(bmp.pitch),
 				.bearingX = static_cast<i16>(slot->bitmap_left),
 				.bearingY = static_cast<i16>(slot->bitmap_top),
 				.advance = static_cast<u16>((slot->advance.x >> 6))
 			};
 			
-			glyphBlock.glyphPixels.assign(
+			glyphBlock.rawPixels.assign(
 				bmp.buffer,
-				bmp.buffer + (glyphBlock.height * abs(glyphBlock.pitch)));
+				bmp.buffer + (bmp.rows * abs(bmp.pitch)));
 				
-			glyphBlock.glyphSize = static_cast<u32>(glyphBlock.glyphPixels.size());
+			glyphBlock.rawPixelSize = static_cast<u32>(glyphBlock.rawPixels.size());
 			
 			glyphs.push_back(move(glyphBlock));
 			
@@ -304,11 +304,10 @@ void ParseAny(
 				oss << "Glyph info for 'U+" << hex << glyphBlock.charCode << dec << "'\n"
 					<< "  width:    " << glyphBlock.width << "\n"
 					<< "  height:   " << glyphBlock.height << "\n"
-					<< "  pitch:    " << glyphBlock.pitch << "\n"
 					<< "  bearingX: " << glyphBlock.bearingX << "\n"
 					<< "  bearingY: " << glyphBlock.bearingY << "\n"
 					<< "  advance:  " << glyphBlock.advance << "\n"
-					<< "  size:     " << glyphBlock.glyphSize << "\n\n";
+					<< "  size:     " << glyphBlock.rawPixelSize << "\n\n";
 					
 				oss << "Glyph bitmap for 'U+" << hex << glyphBlock.charCode << dec << "'\n\n";
 				
@@ -316,7 +315,7 @@ void ParseAny(
 				{
 					for (int x = 0; x < glyphBlock.width; ++x)
 					{
-						oss << ((bmp.buffer[y * abs(glyphBlock.pitch) + x] > 128) ? '#' : ' ');
+						oss << ((bmp.buffer[y * abs(bmp.pitch) + x] > 128) ? '#' : ' ');
 					}
 					oss << '\n';
 				}

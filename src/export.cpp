@@ -7,6 +7,7 @@
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/file_utils.hpp"
+#include "KalaHeaders/import_ktf.hpp"
 
 #include "export.hpp"
 
@@ -18,9 +19,16 @@ using KalaHeaders::WriteU32;
 using KalaHeaders::WriteI8;
 using KalaHeaders::WriteI16;
 using KalaHeaders::WriteI32;
+using KalaHeaders::TopHeader;
+using KalaHeaders::CORRECT_TOP_HEADER_SIZE;
+using KalaHeaders::CORRECT_GLYPH_TABLE_SIZE;
+using KalaHeaders::RAW_PIXEL_DATA_OFFSET;
 
 using std::ofstream;
 using std::ios;
+
+using i8 = int8_t;
+using u32 = uint32_t;
 
 namespace KalaFont
 {
@@ -51,7 +59,7 @@ namespace KalaFont
 		
 		u32 offset{};
 		
-		output.reserve(20);
+		output.reserve(CORRECT_TOP_HEADER_SIZE);
 		
 		WriteU32(output, offset, topHeader.magic);       offset += 4;
 		WriteU8(output, offset, topHeader.version);      offset++;
@@ -59,26 +67,49 @@ namespace KalaFont
 		WriteU16(output, offset, topHeader.glyphHeight); offset += 2;
 		WriteU32(output, offset, topHeader.glyphCount);  offset += 4;
 		
+		//indices
+		
+		WriteU8(output, offset, topHeader.indices[0]); offset++;
+		WriteU8(output, offset, topHeader.indices[1]); offset++;
+		WriteU8(output, offset, topHeader.indices[2]); offset++;
+		WriteU8(output, offset, topHeader.indices[3]); offset++;
+		WriteU8(output, offset, topHeader.indices[4]); offset++;
+		WriteU8(output, offset, topHeader.indices[5]); offset++;
+		
+		//uvs
+		
+		WriteU8(output, offset, topHeader.uvs[0][0]); offset++;
+		WriteU8(output, offset, topHeader.uvs[0][1]); offset++;
+		WriteU8(output, offset, topHeader.uvs[1][0]); offset++;
+		WriteU8(output, offset, topHeader.uvs[1][1]); offset++;
+		WriteU8(output, offset, topHeader.uvs[2][0]); offset++;
+		WriteU8(output, offset, topHeader.uvs[2][1]); offset++;
+		WriteU8(output, offset, topHeader.uvs[3][0]); offset++;
+		WriteU8(output, offset, topHeader.uvs[3][1]); offset++;
+		
 		//
 		// THEN STORE THE GLYPH TABLE
 		//
 		
-		size_t totalGTBytes = 12 * glyphBlocks.size();
+		size_t totalGTBytes = CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size();
 		glyphTableOutput.reserve(totalGTBytes);
 		
-		u32 baseOffset = 20 + totalGTBytes;
+		u32 baseOffset = CORRECT_TOP_HEADER_SIZE + totalGTBytes;
 		u32 tableOffset{};
 		
 		for (const auto& g : glyphBlocks)
 		{
-			u32 blockSize = 20 + g.glyphPixels.size();
+			u32 blockSize = CORRECT_TOP_HEADER_SIZE + g.rawPixels.size();
 			
 			WriteU32(glyphTableOutput, tableOffset + 0, g.charCode);
 			WriteU32(glyphTableOutput, tableOffset + 4, baseOffset);
 			WriteU32(glyphTableOutput, tableOffset + 8, blockSize);
 			
-			tableOffset += 12;        //next table entry (internal buffer)
-			baseOffset  += blockSize; //next glyph block (absolute in final file)
+			//next table entry (internal buffer)
+			tableOffset += CORRECT_GLYPH_TABLE_SIZE;
+			
+			//next glyph block (absolute in final file)
+			baseOffset += blockSize;
 		}
 		
 		//
@@ -86,24 +117,55 @@ namespace KalaFont
 		//
 		
 		size_t totalGBBytes{};
-		for (const auto& g : glyphBlocks) totalGBBytes += 20 + g.glyphPixels.size();
+		for (const auto& g : glyphBlocks) totalGBBytes += RAW_PIXEL_DATA_OFFSET + g.rawPixels.size();
 		
 		glyphBlockOutput.reserve(totalGBBytes);
 		
-		u32 gOffset = 0;
+		u32 gOffset{};
 		
 		for (const auto& g : glyphBlocks)
 		{
-			WriteU32(glyphBlockOutput, gOffset, g.charCode);  gOffset += 4;
-			WriteU16(glyphBlockOutput, gOffset, g.width);     gOffset += 2;
-			WriteU16(glyphBlockOutput, gOffset, g.height);    gOffset += 2;
-			WriteI16(glyphBlockOutput, gOffset, g.pitch);     gOffset += 2;
-			WriteI16(glyphBlockOutput, gOffset, g.bearingX);  gOffset += 2;
-			WriteI16(glyphBlockOutput, gOffset, g.bearingY);  gOffset += 2;
-			WriteU16(glyphBlockOutput, gOffset, g.advance);   gOffset += 2;
-			WriteU32(glyphBlockOutput, gOffset, g.glyphSize); gOffset += 4;
+			WriteU32(glyphBlockOutput, gOffset, g.charCode); gOffset += 4;
+			WriteU16(glyphBlockOutput, gOffset, g.width);    gOffset += 2;
+			WriteU16(glyphBlockOutput, gOffset, g.height);   gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, g.bearingX); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, g.bearingY); gOffset += 2;
+			WriteU16(glyphBlockOutput, gOffset, g.advance);  gOffset += 2;
 			
-			for (const auto& p : g.glyphPixels)
+			//vertices
+			
+			auto CreateVertices = [&]() -> vector<i8>
+				{
+					i8 x0 = static_cast<i8>(g.bearingX);
+					i8 y0 = static_cast<i8>(-g.bearingY);
+					i8 x1 = static_cast<i8>(g.bearingX + g.width);
+					i8 y1 = static_cast<i8>(-g.bearingY + g.height);
+					
+					return 
+					{
+						x0, y0, //top-left
+						x1, y0, //top-right
+						x1, y1, //bottom-right
+						x0, y1  //bottom-left
+					};
+				};
+				
+			vector<i8> vertices = CreateVertices();
+				
+			WriteI8(glyphBlockOutput, gOffset, vertices[0]); gOffset++;
+			WriteI8(glyphBlockOutput, gOffset, vertices[1]); gOffset++;
+			WriteI8(glyphBlockOutput, gOffset, vertices[2]); gOffset++;
+			WriteI8(glyphBlockOutput, gOffset, vertices[3]); gOffset++;
+			WriteI8(glyphBlockOutput, gOffset, vertices[4]); gOffset++;
+			WriteI8(glyphBlockOutput, gOffset, vertices[5]); gOffset++;
+			WriteI8(glyphBlockOutput, gOffset, vertices[6]); gOffset++;
+			WriteI8(glyphBlockOutput, gOffset, vertices[7]); gOffset++;
+				
+			//raw pixel data
+			
+			WriteU32(glyphBlockOutput, gOffset, g.rawPixelSize); gOffset += 4;
+			
+			for (const auto& p : g.rawPixels)
 			{
 				WriteU8(glyphBlockOutput, gOffset, p); gOffset++;
 			}
@@ -113,10 +175,10 @@ namespace KalaFont
 		// AND PASS THE FINAL DATA
 		//
 		
-		WriteU32(output, offset, totalGTBytes);  offset += 4;
-		WriteU32(output, offset, totalGBBytes);  offset += 4;
+		WriteU32(output, offset, totalGTBytes); offset += 4;
+		WriteU32(output, offset, totalGBBytes); offset += 4;
 		
-		output.reserve(20 + totalGTBytes + totalGBBytes);
+		output.reserve(CORRECT_TOP_HEADER_SIZE + totalGTBytes + totalGBBytes);
 		
 		output.insert(output.end(), glyphTableOutput.begin(), glyphTableOutput.end());
 		output.insert(output.end(), glyphBlockOutput.begin(), glyphBlockOutput.end());
