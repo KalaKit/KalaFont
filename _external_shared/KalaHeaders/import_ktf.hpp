@@ -74,11 +74,27 @@ Offset | Size | Field
 
 #include <vector>
 #include <array>
+#include <string>
+#include <fstream>
+#include <filesystem>
 
 namespace KalaHeaders
 {
 	using std::vector;
 	using std::array;
+	using std::string;
+	using std::ifstream;
+	using std::filesystem::path;
+	using std::filesystem::current_path;
+	using std::filesystem::weakly_canonical;
+	using std::filesystem::exists;
+	using std::filesystem::is_regular_file;
+	using std::filesystem::perms;
+	using std::filesystem::status;
+	using std::streamoff;
+	using std::streamsize;
+	using std::ios;
+	using std::move;
 	
 	using u8 = uint8_t;
 	using u16 = uint16_t;
@@ -86,8 +102,14 @@ namespace KalaHeaders
 	using i8 = int8_t;
 	using i16 = int16_t;
 	
+	//The magic that must exist in all ktf files at the first four bytes
+	constexpr u32 KTF_MAGIC = 0x0046544B;
+	
+	//The version that must exist in all ktf files as the fifth byte
+	constexpr u8 KTF_VERSION = 1;
+	
 	//The true top header size that is always required
-	constexpr u8 CORRECT_TOP_HEADER_SIZE = 26u;
+	constexpr u8 CORRECT_GLYPH_HEADER_SIZE = 26u;
 	
 	//The true per-glyph table size that is always required
 	constexpr u8 CORRECT_GLYPH_TABLE_SIZE = 12u;
@@ -98,17 +120,36 @@ namespace KalaHeaders
 	//Max allowed glyphs for bitmap and glyph exporting
 	constexpr u16 MAX_GLYPH_COUNT = 1024u;
 	
-	//Max allowed total glyph blocks size for bitmap and glyph exporting
+	//Max allowed total glyph table size in bytes for bitmap and glyph exporting
+	constexpr u32 MAX_GLYPH_TABLE_SIZE = 12288u;
+	
+	//Max allowed total glyph blocks size in bytes for bitmap and glyph exporting (1024MB)
 	constexpr u32 MAX_GLYPH_BLOCK_SIZE = 1073741824u;
+	
+	constexpr u32 MIN_TOTAL_SIZE = 
+		CORRECT_GLYPH_HEADER_SIZE
+		+ CORRECT_GLYPH_TABLE_SIZE
+		+ RAW_PIXEL_DATA_OFFSET;
+	
+	//Max allowed size for ktf files
+	constexpr u32 MAX_TOTAL_SIZE = 
+		CORRECT_GLYPH_HEADER_SIZE 
+		+ MAX_GLYPH_TABLE_SIZE 
+		+ MAX_GLYPH_BLOCK_SIZE;
+	
+	//Cannot be lower than this amount of pixels for FreeType importer
+	constexpr u8 MIN_GLYPH_HEIGHT = 10;
+	//Cannot be higher than this amount of pixels for FreeType importer
+	constexpr u8 MAX_GLYPH_HEIGHT = 100;
 	
 	//The main header for glyph export-import
 	struct GlyphHeader
 	{
-		u32 magic = 0x0046544B; //'K', 'T', 'F', '\0'
-		u8 version = 1;         //version of this ktf binary
-		u8 type;                //1 = bitmap, 2 = glyph
-		u16 glyphHeight;        //height of all glyphs in pixels
-		u32 glyphCount;         //number of glyphs
+		u32 magic = KTF_MAGIC;    //'K', 'T', 'F', '\0'
+		u8 version = KTF_VERSION; //version of this ktf binary
+		u8 type;                  //1 = bitmap, 2 = glyph
+		u16 glyphHeight;          //height of all glyphs in pixels
+		u32 glyphCount;           //number of glyphs
 		array<u8, 6> indices = { 0, 1, 2, 2, 3, 0 };
 		//uv of this glyph
 		array<array<u8, 2>, 4> uvs = 
@@ -144,5 +185,274 @@ namespace KalaHeaders
 		vector<u8> rawPixels;            //8-bit raw pixels of this glyph (0 - 255, 0 is transparent, 255 is white)
 	};
 	
+	enum class ImportResult : u8
+	{
+		RESULT_SUCCESS                     = 0, //No errors, succeeded with import
+		
+		//
+		// FILE OPERATIONS
+		//
+		
+		RESULT_FILE_NOT_FOUND              = 1,  //File does not exist
+		RESULT_INVALID_EXTENSION           = 2,  //File is not '.ktf'
+		RESULT_UNAUTHORIZED_READ           = 3,  //Not authorized to read this file
+		RESULT_FILE_LOCKED                 = 4,  //Cannot read this file, file is in use
+		RESULT_UNKNOWN_READ_ERROR          = 5,  //Unknown file error when reading file
+		RESULT_FILE_EMPTY                  = 6,  //There is no content inside this file
+		
+		//
+		// IMPORT ERRORS
+		//
+		
+		RESULT_UNSUPPORTED_FILE_SIZE       = 7,  //Always assume total size is atleast 52 bytes
+		
+		RESULT_INVALID_MAGIC               = 8,  //magic must be 'KTF\0'
+		RESULT_INVALID_VERSION             = 9,  //version must be '1'
+		RESULT_INVALID_TYPE                = 10, //type must be '1' or '2'
+		RESULT_INVALID_GLYPH_HEIGHT        = 11, //glyph height must be within range
+		RESULT_INVALID_GLYPH_HEADER_SIZE   = 12, //found a glyph header that wasnt 26 bytes in size
+		RESULT_INVALID_GLYPH_TABLE_SIZE    = 13, //found a glyph table that wasnt 12 bytes in size
+		RESULT_INVALID_GLYPH_BLOCK_SIZE    = 14, //found a glyph block that was less than 24 bytes or more than 1024MB in size
+		RESULT_INVALID_GLYPH_COUNT         = 15, //glyph count was above 1024
+		RESULT_CORRUPTED_BLOCK_OFFSET      = 16  //offset + block size is higher than file size
+	};
 	
+	inline string ResultToString(ImportResult result)
+	{
+		switch (result)
+		{
+		default: return "RESULT_UNKNOWN";
+			
+		case ImportResult::RESULT_SUCCESS:
+			return "RESULT_SUCCESS";
+		
+		case ImportResult::RESULT_FILE_NOT_FOUND:
+			return "RESULT_FILE_NOT_FOUND";
+		case ImportResult::RESULT_INVALID_EXTENSION:
+			return "RESULT_INVALID_EXTENSION";
+		case ImportResult::RESULT_UNAUTHORIZED_READ:
+			return "RESULT_UNAUTHORIZED_READ";
+		case ImportResult::RESULT_FILE_LOCKED:
+			return "RESULT_FILE_LOCKED";
+		case ImportResult::RESULT_UNKNOWN_READ_ERROR:
+			return "RESULT_UNKNOWN_READ_ERROR";
+		case ImportResult::RESULT_FILE_EMPTY:
+			return "RESULT_FILE_EMPTY";
+			
+		case ImportResult::RESULT_UNSUPPORTED_FILE_SIZE:
+			return "RESULT_UNSUPPORTED_FILE_SIZE";
+			
+		case ImportResult::RESULT_INVALID_MAGIC:
+			return "RESULT_INVALID_MAGIC";
+		case ImportResult::RESULT_INVALID_VERSION:
+			return "RESULT_INVALID_VERSION";
+		case ImportResult::RESULT_INVALID_TYPE:
+			return "RESULT_INVALID_TYPE";
+		case ImportResult::RESULT_INVALID_GLYPH_HEADER_SIZE:
+			return "RESULT_INVALID_GLYPH_HEADER_SIZE";
+		case ImportResult::RESULT_INVALID_GLYPH_TABLE_SIZE:
+			return "RESULT_INVALID_GLYPH_TABLE_SIZE";
+		case ImportResult::RESULT_INVALID_GLYPH_BLOCK_SIZE:
+			return "RESULT_INVALID_GLYPH_BLOCK_SIZE";
+		case ImportResult::RESULT_INVALID_GLYPH_COUNT:
+			return "RESULT_INVALID_GLYPH_COUNT";
+		case ImportResult::RESULT_CORRUPTED_BLOCK_OFFSET:
+			return "RESULT_CORRUPTED_BLOCK_OFFSET";
+		}
+		
+		return "RESULT_UNKNOWN";
+	}
+	
+	//Takes in a path to the .ktf file and returns binary data with a result enum
+	inline ImportResult ImportKTF(
+		const path& inFile,
+		GlyphHeader& outHeader,
+		vector<GlyphTable>& outTables,
+		vector<GlyphBlock>& outBlocks)
+	{
+		//
+		// PRE-READ CHECKS
+		//
+		
+		if (!exists(inFile)) return ImportResult::RESULT_FILE_NOT_FOUND;
+		if (!is_regular_file(inFile)
+			|| !inFile.has_extension()
+			|| inFile.extension() != ".ktf")
+		{
+			return ImportResult::RESULT_INVALID_EXTENSION;
+		}
+		
+		auto fileStatus = status(inFile);
+		auto filePerms = fileStatus.permissions();
+		
+		bool canRead = (filePerms & (
+			perms::owner_read
+			| perms::group_read
+			| perms::others_read))  
+			!= perms::none;
+		
+		if (!canRead) return ImportResult::RESULT_UNAUTHORIZED_READ;
+				
+		try
+		{
+			//
+			// TRY TO OPEN AND READ
+			//
+			
+			errno = 0;
+			ifstream in(inFile, ios::in | ios::binary);
+			if (in.fail()
+				&& errno != 0)
+			{
+				if (errno == EBUSY
+					|| errno == ETXTBSY)
+				{
+					return ImportResult::RESULT_FILE_LOCKED;
+				}
+				else return ImportResult::RESULT_UNKNOWN_READ_ERROR;
+			}
+			
+			in.seekg(0, ios::end);
+			size_t fileSize = static_cast<size_t>(in.tellg());
+			
+			if (fileSize == 0) return ImportResult::RESULT_FILE_EMPTY;
+			if (fileSize < MIN_TOTAL_SIZE)
+			{
+				return ImportResult::RESULT_UNSUPPORTED_FILE_SIZE;
+			}
+			if (fileSize > MAX_TOTAL_SIZE)
+			{
+				return ImportResult::RESULT_UNSUPPORTED_FILE_SIZE;
+			}
+			
+			in.seekg(static_cast<streamoff>(0), ios::beg);
+			
+			//
+			// PARSE FOUND DATA
+			//
+			
+			vector<u8> rawData(fileSize);
+			
+			in.read(
+				reinterpret_cast<char*>(rawData.data()),
+				static_cast<streamsize>(fileSize));
+				
+			in.close();	
+				
+			GlyphHeader header{};
+			
+			//glyph header
+			
+			memcpy(&header.magic, rawData.data() + 0, sizeof(u32));
+			if (header.magic != KTF_MAGIC) return ImportResult::RESULT_INVALID_MAGIC;
+			
+			memcpy(&header.version, rawData.data() + 4, sizeof(u8));
+			if (header.version != KTF_VERSION) return ImportResult::RESULT_INVALID_VERSION;
+			
+			memcpy(&header.type, rawData.data() + 5,  sizeof(u8));
+			if (header.type != 1
+				&& header.type != 2)
+			{
+				return ImportResult::RESULT_INVALID_TYPE;
+			}
+			
+			memcpy(&header.glyphHeight, rawData.data() + 6,  sizeof(u16));
+			if (header.glyphHeight < MIN_GLYPH_HEIGHT
+				|| header.glyphHeight > MAX_GLYPH_HEIGHT)
+			{
+				return ImportResult::RESULT_INVALID_GLYPH_HEIGHT;
+			}
+			
+			memcpy(&header.glyphCount, rawData.data() + 8,  sizeof(u32));
+			if (header.glyphCount < 1
+				|| header.glyphCount > MAX_GLYPH_COUNT)
+			{
+				return ImportResult::RESULT_INVALID_GLYPH_COUNT;
+			}
+			
+			memcpy(&header.indices[0],     rawData.data() + 12, sizeof(u8) * 6);
+			memcpy(&header.uvs[0][0],      rawData.data() + 18, sizeof(u8) * 8);
+
+			memcpy(&header.glyphTableSize, rawData.data() + 26, sizeof(u32));
+			if (header.glyphTableSize < CORRECT_GLYPH_TABLE_SIZE
+				|| header.glyphTableSize > MAX_GLYPH_TABLE_SIZE)
+			{
+				return ImportResult::RESULT_INVALID_GLYPH_TABLE_SIZE;
+			}
+			
+			memcpy(&header.glyphBlockSize, rawData.data() + 30, sizeof(u32));
+			if (header.glyphBlockSize < RAW_PIXEL_DATA_OFFSET
+				|| header.glyphBlockSize > MAX_GLYPH_BLOCK_SIZE)
+			{
+				return ImportResult::RESULT_INVALID_GLYPH_BLOCK_SIZE;
+			}
+			
+			//glyph table data
+			
+			vector<GlyphTable> tables{};
+			tables.reserve(header.glyphCount);
+			
+			for (size_t i = CORRECT_GLYPH_HEADER_SIZE; 
+				i < CORRECT_GLYPH_HEADER_SIZE + header.glyphTableSize; 
+				i += CORRECT_GLYPH_TABLE_SIZE)
+			{
+				GlyphTable t{};
+				
+				memcpy(&t.charCode, rawData.data() + i + 0, sizeof(u32));
+				memcpy(&t.blockOffset, rawData.data() + i + 4, sizeof(u32));
+				memcpy(&t.blockSize, rawData.data() + i + 8, sizeof(u32));
+				
+				tables.push_back(t);
+			}
+			
+			//glyph block data
+			
+			vector<GlyphBlock> blocks{};
+			blocks.reserve(header.glyphCount);
+			
+			for (const auto& t : tables)
+			{
+				GlyphBlock b{};
+				size_t offset = t.blockOffset;
+				
+				if (t.blockOffset + t.blockSize > fileSize)
+				{
+					   return ImportResult::RESULT_CORRUPTED_BLOCK_OFFSET;
+				}
+				
+				memcpy(&b.charCode, rawData.data() + offset + 0, sizeof(u32));
+				memcpy(&b.width,    rawData.data() + offset + 4, sizeof(u16));
+				memcpy(&b.height,   rawData.data() + offset + 6, sizeof(u16));
+				memcpy(&b.bearingX, rawData.data() + offset + 8, sizeof(i16));
+				memcpy(&b.bearingY, rawData.data() + offset + 10, sizeof(i16));
+				memcpy(&b.advance,  rawData.data() + offset + 12, sizeof(u16));
+				
+				//vertices
+				for (int v = 0; v < 4; ++v)
+				{
+					memcpy(&b.vertices[v][0], rawData.data() + offset + 14 + v * 2, sizeof(i8));
+					memcpy(&b.vertices[v][1], rawData.data() + offset + 15 + v * 2, sizeof(i8));
+				}
+				
+				//raw pixel size
+				memcpy(&b.rawPixelSize, rawData.data() + offset + 22, sizeof(u32));
+				
+				//raw pixel data
+				b.rawPixels.resize(b.rawPixelSize);
+				memcpy(b.rawPixels.data(), rawData.data() + offset + 26, b.rawPixelSize);
+				
+				blocks.push_back(move(b));
+			}
+			
+			outHeader = move(header);
+			outTables = move(tables);
+			outBlocks = move(blocks);
+		}
+		catch (...)
+		{
+			return ImportResult::RESULT_UNKNOWN_READ_ERROR;
+		}
+		
+		return ImportResult::RESULT_SUCCESS;
+	}
 }

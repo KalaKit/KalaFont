@@ -24,6 +24,8 @@ using KalaHeaders::LogType;
 using KalaHeaders::HasAnyNonNumber;
 using KalaHeaders::HasAnyWhiteSpace;
 using KalaHeaders::GlyphBlock;
+using KalaHeaders::MIN_GLYPH_HEIGHT;
+using KalaHeaders::MAX_GLYPH_HEIGHT;
 
 using KalaFont::Core;
 using KalaFont::Export;
@@ -46,9 +48,6 @@ using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
 using i16 = int16_t;
-
-constexpr u8 MIN_GLYPH_HEIGHT = 12;  //pixels
-constexpr u8 MAX_GLYPH_HEIGHT = 255; //pixels
 
 constexpr u8 MIN_SUPERSAMPLE = 1;    //multiplier
 constexpr u8 MAX_SUPERSAMPLE = 3;    //multiplier

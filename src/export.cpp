@@ -21,7 +21,7 @@ using KalaHeaders::WriteI8;
 using KalaHeaders::WriteI16;
 using KalaHeaders::WriteI32;
 using KalaHeaders::GlyphHeader;
-using KalaHeaders::CORRECT_TOP_HEADER_SIZE;
+using KalaHeaders::CORRECT_GLYPH_HEADER_SIZE;
 using KalaHeaders::CORRECT_GLYPH_TABLE_SIZE;
 using KalaHeaders::RAW_PIXEL_DATA_OFFSET;
 using KalaHeaders::MAX_GLYPH_COUNT;
@@ -125,7 +125,7 @@ namespace KalaFont
 		
 		u32 offset{};
 		
-		output.reserve(CORRECT_TOP_HEADER_SIZE);
+		output.reserve(CORRECT_GLYPH_HEADER_SIZE);
 		
 		WriteU32(output, offset, glyphHeader.magic);       offset += 4;
 		WriteU8(output, offset, glyphHeader.version);      offset++;
@@ -160,12 +160,12 @@ namespace KalaFont
 		size_t totalGTBytes = CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size();
 		glyphTableOutput.reserve(totalGTBytes);
 		
-		u32 baseOffset = CORRECT_TOP_HEADER_SIZE + totalGTBytes;
+		u32 baseOffset = CORRECT_GLYPH_HEADER_SIZE + totalGTBytes;
 		u32 tableOffset{};
 		
 		for (const auto& g : glyphBlocks)
 		{
-			u32 blockSize = CORRECT_TOP_HEADER_SIZE + g.rawPixels.size();
+			u32 blockSize = CORRECT_GLYPH_HEADER_SIZE + g.rawPixels.size();
 			
 			WriteU32(glyphTableOutput, tableOffset + 0, g.charCode);
 			WriteU32(glyphTableOutput, tableOffset + 4, baseOffset);
@@ -244,7 +244,7 @@ namespace KalaFont
 		WriteU32(output, offset, totalGTBytes); offset += 4;
 		WriteU32(output, offset, totalGBBytes); offset += 4;
 		
-		output.reserve(CORRECT_TOP_HEADER_SIZE + totalGTBytes + totalGBBytes);
+		output.reserve(CORRECT_GLYPH_HEADER_SIZE + totalGTBytes + totalGBBytes);
 		
 		output.insert(output.end(), glyphTableOutput.begin(), glyphTableOutput.end());
 		output.insert(output.end(), glyphBlockOutput.begin(), glyphBlockOutput.end());
