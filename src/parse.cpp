@@ -35,10 +35,14 @@ using std::filesystem::path;
 using std::filesystem::weakly_canonical;
 using std::filesystem::is_regular_file;
 using std::ostringstream;
+using std::hex;
+using std::dec;
+using std::move;
 
 using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
+using i16 = int16_t;
 
 constexpr u32 MAX_SIZE_BYTES = 1073741824; //1024 MB
 constexpr u16 MAX_GLYPH_COUNT = 1024;
@@ -84,7 +88,7 @@ void ParseAny(
 	Log::Print(
 		"Initialized FreeType.",
 		"COMPILE_FONT",
-		LogType::LOG_INFO);
+		LogType::LOG_DEBUG);
 	
 	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
 	path correctOrigin = weakly_canonical(path(Core::currentDir) / params[4]);
@@ -199,7 +203,7 @@ void ParseAny(
 	Log::Print(
 		"Starting to compile font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "'",
 		"COMPILE_FONT",
-		LogType::LOG_INFO);
+		LogType::LOG_DEBUG);
 		
 	FT_Face face{};
 	if (FT_New_Face(ft, correctOrigin.string().c_str(), 0, &face))
@@ -218,6 +222,8 @@ void ParseAny(
 	FT_ULong charCode{};
 	FT_UInt glyphIndex{};
 	
+	vector<GlyphBlock> glyphs{};
+	
 	ostringstream oss{};
 	
 	charCode = FT_Get_First_Char(face, &glyphIndex);
@@ -229,26 +235,46 @@ void ParseAny(
 			FT_GlyphSlot slot = face->glyph;
 			FT_Bitmap& bmp = slot->bitmap;
 			
+			GlyphBlock glyphBlock = 
+			{
+				.charCode = charCode,
+				.width = static_cast<u16>(bmp.width),
+				.height = static_cast<u16>(bmp.rows),
+				.pitch = static_cast<i16>(bmp.pitch),
+				.bearingX = static_cast<i16>(slot->bitmap_left),
+				.bearingY = static_cast<i16>(slot->bitmap_top),
+				.advance = static_cast<u16>((slot->advance.x >> 6))
+			};
+			
+			glyphBlock.glyphPixels.assign(
+				bmp.buffer,
+				bmp.buffer + (glyphBlock.height * abs(glyphBlock.pitch)));
+				
+			glyphBlock.glyphSize = static_cast<u32>(glyphBlock.glyphPixels.size());
+			
+			glyphs.push_back(move(glyphBlock));
+			
 			if (isVerbose)
 			{
 				oss.str(""); 
 				oss.clear();
 			
-				oss << "Glyph info for '" << static_cast<char>(charCode) << "'\n"
-					<< "  width:    " << bmp.width << "\n"
-					<< "  height:   " << bmp.rows << "\n"
-					<< "  pitch:    " << bmp.pitch << "\n"
-					<< "  advance:  " << (slot->advance.x >> 6) << "\n"
-					<< "  bearingX: " << slot->bitmap_left << "\n"
-					<< "  bearingY: " << slot->bitmap_top << "\n";
+				oss << "Glyph info for 'U+" << hex << glyphBlock.charCode << dec << "'\n"
+					<< "  width:    " << glyphBlock.width << "\n"
+					<< "  height:   " << glyphBlock.height << "\n"
+					<< "  pitch:    " << glyphBlock.pitch << "\n"
+					<< "  bearingX: " << glyphBlock.bearingX << "\n"
+					<< "  bearingY: " << glyphBlock.bearingY << "\n"
+					<< "  advance:  " << glyphBlock.advance << "\n"
+					<< "  size:     " << glyphBlock.glyphSize << "\n\n";
 					
-				oss << "Glyph bitmap for '" << static_cast<char>(charCode) << "'\n";
+				oss << "Glyph bitmap for 'U+" << hex << glyphBlock.charCode << dec << "'\n\n";
 				
-				for (int y = 0; y < bmp.rows; ++y)
+				for (int y = 0; y < glyphBlock.height; ++y)
 				{
-					for (int x = 0; x < bmp.width; ++x)
+					for (int x = 0; x < glyphBlock.width; ++x)
 					{
-						oss << ((bmp.buffer[y * bmp.pitch + x] > 128) ? '#' : ' ');
+						oss << ((bmp.buffer[y * abs(glyphBlock.pitch) + x] > 128) ? '#' : ' ');
 					}
 					oss << '\n';
 				}
@@ -270,10 +296,19 @@ void ParseAny(
 		charCode = FT_Get_Next_Char(face, charCode, &glyphIndex);
 	}
 	
+	u8 type = params[1] == "bitmap" ? 1 : 2;
+	
 	Log::Print(
 		"Finished compiling font!",
 		"COMPILE_FONT",
 		LogType::LOG_SUCCESS);
+	
+	Export::ExportKTF(
+		correctTarget,
+		type,
+		static_cast<u8>(glyphHeight),
+		static_cast<u8>(supersampleMultiplier),
+		glyphs);
 	
 	FT_Done_Face(face);
 	FT_Done_FreeType(ft);

@@ -7,11 +7,13 @@
 
 #include <vector>
 #include <string>
+#include <filesystem>
 
 namespace KalaFont
 {
 	using std::vector;
 	using std::string;
+	using std::filesystem::path;
 	
 	using u8 = uint8_t;
 	using u16 = uint16_t;
@@ -41,24 +43,23 @@ namespace KalaFont
 	//Info + payload of each glyph
 	struct GlyphBlock
 	{
-		u32 charCode;      //unicode codepoint
-		u16 width;         //bmp.width
-		u16 height;        //bmp.rows
-		i16 pitch;         //bmp.pitch (can be negative for some formats)
-		i16 bearingX;      //slot->bitmap_left
-		i16 bearingY;      //slot->bitmap_top
-		u16 advance;       //slot->advance.x >> 6
-		u32 dataOffset;    //offset to the glyph's pixel data in the atlas/file
-		u32 dataSize{};    //size of this glyph's bitmap
-		vector<u8> bitmap; //store bitmap pixels
+		u32 charCode;           //unicode codepoint
+		u16 width;              //bmp.width
+		u16 height;             //bmp.rows
+		i16 pitch;              //bmp.pitch (can be negative for some formats)
+		i16 bearingX;           //slot->bitmap_left
+		i16 bearingY;           //slot->bitmap_top
+		u16 advance;            //slot->advance.x >> 6
+		u32 glyphSize;          //size of this glyph's bitmap
+		vector<u8> glyphPixels; //pixels of this glyph bitmap
 	};
 	
 	class Export
 	{
 	public:
 		//Write the ktf data to the target path as a new binary
-		static void ExportKalaTypeFont(
-			const string& targetPath,
+		static void ExportKTF(
+			const path& targetPath,
 			u8 type,
 			u8 glyphHeight,
 			u8 superSampleMultiplier,
