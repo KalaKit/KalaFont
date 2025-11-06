@@ -34,6 +34,8 @@ using std::filesystem::current_path;
 using std::filesystem::path;
 using std::filesystem::weakly_canonical;
 using std::filesystem::is_regular_file;
+using std::filesystem::status;
+using std::filesystem::perms;
 using std::ostringstream;
 using std::hex;
 using std::dec;
@@ -178,6 +180,26 @@ void ParseAny(
 		return;
 	}
 	
+	auto fileStatusOrigin = status(correctOrigin);
+	auto filePermsOrigin = fileStatusOrigin.permissions();
+		
+	bool canReadOrigin = (filePermsOrigin & (
+		perms::owner_read
+		| perms::group_read
+		| perms::others_read))  
+		!= perms::none;
+		
+	if (!canReadOrigin)
+	{
+		Log::Print(
+			"Failed to parse font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "' because of insufficient read permissions for origin path!",
+			"COMPILE_FONT",
+			LogType::LOG_ERROR,
+			2);
+		
+		return;
+	}
+	
 	if (exists(correctTarget))
 	{
 		Log::Print(
@@ -193,6 +215,26 @@ void ParseAny(
 	{
 		Log::Print(
 			"Failed to parse font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "' because the target does not have a valid extension!",
+			"COMPILE_FONT",
+			LogType::LOG_ERROR,
+			2);
+		
+		return;
+	}
+	
+	auto fileStatusTarget = status(correctTarget.parent_path());
+	auto filePermsTarget = fileStatusTarget.permissions();
+		
+	bool canWriteTarget = (filePermsTarget & (
+		perms::owner_write
+		| perms::group_write
+		| perms::others_write))  
+		!= perms::none;
+			
+	if (!canWriteTarget)
+	{
+		Log::Print(
+			"Failed to parse font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "' because of insufficient write permissions to target directory!",
 			"COMPILE_FONT",
 			LogType::LOG_ERROR,
 			2);

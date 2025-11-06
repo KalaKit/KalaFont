@@ -23,13 +23,13 @@ namespace KalaFont
 	//At the top of the kgm binary
 	struct TopHeader
 	{
-		char magic[4] = { 'K', 'T', 'F', '\0' };
+		u32 magic = 0x0046544B; //'K', 'T', 'F', '\0'
 		u8 version = 1;
 		u8 type;            //1 = bitmap, 2 = glyph
 		u16 glyphHeight;    //height of all glyphs in pixels
 		u32 glyphCount;     //number of glyphs
 		u32 glyphTableSize; //glyph search table size in bytes
-		u32 payloadSize;    //glyph payload block size in bytes
+		u32 glyphBlockSize;    //glyph payload block size in bytes
 	};
 
 	//Helps find glyphs fast
