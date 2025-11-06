@@ -24,8 +24,16 @@ namespace KalaFont
 	class Export
 	{
 	public:
-		//Write the ktf data to the target path as a new binary
-		static void ExportKTF(
+		//Export as ktf with bitmap type
+		static void ExportBitmap(
+			const path& targetPath,
+			u8 type,
+			u8 glyphHeight,
+			u8 superSampleMultiplier,
+			vector<GlyphBlock>& glyphBlocks);
+	
+		//Export as ktf with glyph type
+		static void ExportGlyph(
 			const path& targetPath,
 			u8 type,
 			u8 glyphHeight,

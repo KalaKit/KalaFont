@@ -95,8 +95,14 @@ namespace KalaHeaders
 	//The offset where pixel data must always start relative to each glyph block
 	constexpr u8 RAW_PIXEL_DATA_OFFSET = 24u;
 	
-	//At the top of the ktf binary
-	struct TopHeader
+	//Max allowed glyphs for bitmap and glyph exporting
+	constexpr u16 MAX_GLYPH_COUNT = 1024u;
+	
+	//Max allowed total glyph blocks size for bitmap and glyph exporting
+	constexpr u32 MAX_GLYPH_BLOCK_SIZE = 1073741824u;
+	
+	//The main header for glyph export-import
+	struct GlyphHeader
 	{
 		u32 magic = 0x0046544B; //'K', 'T', 'F', '\0'
 		u8 version = 1;         //version of this ktf binary
@@ -116,7 +122,7 @@ namespace KalaHeaders
 		u32 glyphBlockSize;     //glyph payload block size in bytes
 	};
 
-	//Helps find glyphs fast
+	//The search table for glyph export-import
 	struct GlyphTable
 	{
 		u32 charCode;    //glyph character code in unicode
@@ -124,7 +130,7 @@ namespace KalaHeaders
 		u32 blockSize;   //size of the glyph block (info + payload)
 	};
 		
-	//Info + payload of each glyph
+	//The font payload table for glyph export-import
 	struct GlyphBlock
 	{
 		u32 charCode;                    //glyph character code in unicode
@@ -137,4 +143,6 @@ namespace KalaHeaders
 		u32 rawPixelSize;                //size of this glyph's pixels
 		vector<u8> rawPixels;            //8-bit raw pixels of this glyph (0 - 255, 0 is transparent, 255 is white)
 	};
+	
+	
 }

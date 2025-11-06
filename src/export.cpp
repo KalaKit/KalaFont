@@ -4,6 +4,7 @@
 //Read LICENSE.md for more information.
 
 #include <fstream>
+#include <string>
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/file_utils.hpp"
@@ -19,29 +20,94 @@ using KalaHeaders::WriteU32;
 using KalaHeaders::WriteI8;
 using KalaHeaders::WriteI16;
 using KalaHeaders::WriteI32;
-using KalaHeaders::TopHeader;
+using KalaHeaders::GlyphHeader;
 using KalaHeaders::CORRECT_TOP_HEADER_SIZE;
 using KalaHeaders::CORRECT_GLYPH_TABLE_SIZE;
 using KalaHeaders::RAW_PIXEL_DATA_OFFSET;
+using KalaHeaders::MAX_GLYPH_COUNT;
+using KalaHeaders::MAX_GLYPH_BLOCK_SIZE;
 
 using std::ofstream;
 using std::ios;
+using std::to_string;
 
 using i8 = int8_t;
 using u32 = uint32_t;
 
 namespace KalaFont
 {
-	void Export::ExportKTF(
+	void Export::ExportBitmap(
 		const path& targetPath,
 		u8 type,
 		u8 glyphHeight,
 		u8 superSampleMultiplier,
 		vector<GlyphBlock>& glyphBlocks)
 	{
+		if (glyphBlocks.size() > MAX_GLYPH_COUNT)
+		{
+			Log::Print(
+				"Failed to export because glyph count exceeded max allowed count '" + to_string(MAX_GLYPH_COUNT) + "'!",
+				"EXPORT_BITMAP",
+				LogType::LOG_ERROR,
+				2);
+		
+			return;
+		}
+		
+		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_BLOCK_SIZE)
+		{
+			Log::Print(
+				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_BLOCK_SIZE) + "'!",
+				"EXPORT_BITMAP",
+				LogType::LOG_ERROR,
+				2);
+		
+			return;
+		}
+		
 		Log::Print(
-			"Starting to export font to path '" + targetPath.string() + "'.",
-			"EXPORT_FONT",
+			"Starting to export bitmap to path '" + targetPath.string() + "'.",
+			"EXPORT_BITMAP",
+			LogType::LOG_DEBUG);
+			
+		Log::Print(
+			"Finished exporting bitmap!",
+			"EXPORT_BITMAP",
+			LogType::LOG_SUCCESS);
+	}
+	
+	void Export::ExportGlyph(
+		const path& targetPath,
+		u8 type,
+		u8 glyphHeight,
+		u8 superSampleMultiplier,
+		vector<GlyphBlock>& glyphBlocks)
+	{
+		if (glyphBlocks.size() > MAX_GLYPH_COUNT)
+		{
+			Log::Print(
+				"Failed to export because glyph count exceeded max allowed count '" + to_string(MAX_GLYPH_COUNT) + "'!",
+				"EXPORT_GLYPH",
+				LogType::LOG_ERROR,
+				2);
+		
+			return;
+		}
+		
+		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_BLOCK_SIZE)
+		{
+			Log::Print(
+				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_BLOCK_SIZE) + "'!",
+				"EXPORT_GLYPH",
+				LogType::LOG_ERROR,
+				2);
+		
+			return;
+		}
+		
+		Log::Print(
+			"Starting to export glyphs to path '" + targetPath.string() + "'.",
+			"EXPORT_GLYPH",
 			LogType::LOG_DEBUG);
 			
 		vector<u8> output{};
@@ -52,40 +118,40 @@ namespace KalaFont
 		// FIRST STORE THE TOP HEADER
 		//
 			
-		TopHeader topHeader{};
-		topHeader.type = type;
-		topHeader.glyphHeight = glyphHeight;
-		topHeader.glyphCount = glyphBlocks.size();
+		GlyphHeader glyphHeader{};
+		glyphHeader.type = type;
+		glyphHeader.glyphHeight = glyphHeight;
+		glyphHeader.glyphCount = glyphBlocks.size();
 		
 		u32 offset{};
 		
 		output.reserve(CORRECT_TOP_HEADER_SIZE);
 		
-		WriteU32(output, offset, topHeader.magic);       offset += 4;
-		WriteU8(output, offset, topHeader.version);      offset++;
-		WriteU8(output, offset, topHeader.type);         offset++;
-		WriteU16(output, offset, topHeader.glyphHeight); offset += 2;
-		WriteU32(output, offset, topHeader.glyphCount);  offset += 4;
+		WriteU32(output, offset, glyphHeader.magic);       offset += 4;
+		WriteU8(output, offset, glyphHeader.version);      offset++;
+		WriteU8(output, offset, glyphHeader.type);         offset++;
+		WriteU16(output, offset, glyphHeader.glyphHeight); offset += 2;
+		WriteU32(output, offset, glyphHeader.glyphCount);  offset += 4;
 		
 		//indices
 		
-		WriteU8(output, offset, topHeader.indices[0]); offset++;
-		WriteU8(output, offset, topHeader.indices[1]); offset++;
-		WriteU8(output, offset, topHeader.indices[2]); offset++;
-		WriteU8(output, offset, topHeader.indices[3]); offset++;
-		WriteU8(output, offset, topHeader.indices[4]); offset++;
-		WriteU8(output, offset, topHeader.indices[5]); offset++;
+		WriteU8(output, offset, glyphHeader.indices[0]); offset++;
+		WriteU8(output, offset, glyphHeader.indices[1]); offset++;
+		WriteU8(output, offset, glyphHeader.indices[2]); offset++;
+		WriteU8(output, offset, glyphHeader.indices[3]); offset++;
+		WriteU8(output, offset, glyphHeader.indices[4]); offset++;
+		WriteU8(output, offset, glyphHeader.indices[5]); offset++;
 		
 		//uvs
 		
-		WriteU8(output, offset, topHeader.uvs[0][0]); offset++;
-		WriteU8(output, offset, topHeader.uvs[0][1]); offset++;
-		WriteU8(output, offset, topHeader.uvs[1][0]); offset++;
-		WriteU8(output, offset, topHeader.uvs[1][1]); offset++;
-		WriteU8(output, offset, topHeader.uvs[2][0]); offset++;
-		WriteU8(output, offset, topHeader.uvs[2][1]); offset++;
-		WriteU8(output, offset, topHeader.uvs[3][0]); offset++;
-		WriteU8(output, offset, topHeader.uvs[3][1]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[0][0]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[0][1]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[1][0]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[1][1]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[2][0]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[2][1]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[3][0]); offset++;
+		WriteU8(output, offset, glyphHeader.uvs[3][1]); offset++;
 		
 		//
 		// THEN STORE THE GLYPH TABLE
@@ -193,8 +259,8 @@ namespace KalaFont
 		file.close();
 			
 		Log::Print(
-			"Finished exporting font!",
-			"EXPORT_FONT",
+			"Finished exporting glyphs!",
+			"EXPORT_GLYPH",
 			LogType::LOG_SUCCESS);
 	}
 }

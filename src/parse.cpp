@@ -47,13 +47,11 @@ using u16 = uint16_t;
 using u32 = uint32_t;
 using i16 = int16_t;
 
-constexpr u32 MAX_SIZE_BYTES = 1073741824; //1024 MB
-constexpr u16 MAX_GLYPH_COUNT = 1024;
-constexpr u8 MIN_GLYPH_HEIGHT = 12;        //pixels
-constexpr u8 MAX_GLYPH_HEIGHT = 255;       //pixels
+constexpr u8 MIN_GLYPH_HEIGHT = 12;  //pixels
+constexpr u8 MAX_GLYPH_HEIGHT = 255; //pixels
 
-constexpr u8 MIN_SUPERSAMPLE = 1;          //multiplier
-constexpr u8 MAX_SUPERSAMPLE = 3;          //multiplier
+constexpr u8 MIN_SUPERSAMPLE = 1;    //multiplier
+constexpr u8 MAX_SUPERSAMPLE = 3;    //multiplier
 
 static void ParseAny(
 	const vector<string>& params,
@@ -344,12 +342,24 @@ void ParseAny(
 		"COMPILE_FONT",
 		LogType::LOG_SUCCESS);
 	
-	Export::ExportKTF(
-		correctTarget,
-		type,
-		static_cast<u8>(glyphHeight),
-		static_cast<u8>(supersampleMultiplier),
-		glyphs);
+	if (type == 1)
+	{
+		Export::ExportBitmap(
+			correctTarget,
+			type,
+			static_cast<u8>(glyphHeight),
+			static_cast<u8>(supersampleMultiplier),
+			glyphs);	
+	}
+	else
+	{
+		Export::ExportGlyph(
+			correctTarget,
+			type,
+			static_cast<u8>(glyphHeight),
+			static_cast<u8>(supersampleMultiplier),
+			glyphs);	
+	}
 	
 	FT_Done_Face(face);
 	FT_Done_FreeType(ft);
