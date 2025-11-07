@@ -25,7 +25,7 @@ using KalaHeaders::CORRECT_GLYPH_HEADER_SIZE;
 using KalaHeaders::CORRECT_GLYPH_TABLE_SIZE;
 using KalaHeaders::RAW_PIXEL_DATA_OFFSET;
 using KalaHeaders::MAX_GLYPH_COUNT;
-using KalaHeaders::MAX_GLYPH_BLOCK_SIZE;
+using KalaHeaders::MAX_GLYPH_TABLE_SIZE;
 
 using std::ofstream;
 using std::ios;
@@ -54,10 +54,10 @@ namespace KalaFont
 			return;
 		}
 		
-		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_BLOCK_SIZE)
+		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_TABLE_SIZE)
 		{
 			Log::Print(
-				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_BLOCK_SIZE) + "'!",
+				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_TABLE_SIZE) + "'!",
 				"EXPORT_BITMAP",
 				LogType::LOG_ERROR,
 				2);
@@ -94,10 +94,10 @@ namespace KalaFont
 			return;
 		}
 		
-		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_BLOCK_SIZE)
+		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_TABLE_SIZE)
 		{
 			Log::Print(
-				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_BLOCK_SIZE) + "'!",
+				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_TABLE_SIZE) + "'!",
 				"EXPORT_GLYPH",
 				LogType::LOG_ERROR,
 				2);
@@ -165,7 +165,7 @@ namespace KalaFont
 		
 		for (const auto& g : glyphBlocks)
 		{
-			u32 blockSize = CORRECT_GLYPH_HEADER_SIZE + g.rawPixels.size();
+			u32 blockSize = RAW_PIXEL_DATA_OFFSET + g.rawPixels.size();
 			
 			WriteU32(glyphTableOutput, tableOffset + 0, g.charCode);
 			WriteU32(glyphTableOutput, tableOffset + 4, baseOffset);
@@ -229,7 +229,7 @@ namespace KalaFont
 				
 			//raw pixel data
 			
-			WriteU32(glyphBlockOutput, gOffset, g.rawPixelSize); gOffset += 4;
+			WriteU32(glyphBlockOutput, gOffset, g.rawPixels.size()); gOffset += 4;
 			
 			for (const auto& p : g.rawPixels)
 			{
