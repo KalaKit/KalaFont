@@ -32,6 +32,7 @@ using std::ios;
 using std::to_string;
 
 using i8 = int8_t;
+using i16 = int16_t;
 using u32 = uint32_t;
 
 namespace KalaFont
@@ -200,32 +201,32 @@ namespace KalaFont
 			
 			//vertices
 			
-			auto CreateVertices = [&]() -> vector<i8>
+			auto CreateVertices = [&]() -> vector<i16>
 				{
-					i8 x0 = static_cast<i8>(g.bearingX);
-					i8 y0 = static_cast<i8>(-g.bearingY);
-					i8 x1 = static_cast<i8>(g.bearingX + g.width);
-					i8 y1 = static_cast<i8>(-g.bearingY + g.height);
+					i16 x0 = static_cast<i16>(g.bearingX);
+					i16 y0 = static_cast<i16>(g.bearingY - g.height); //bottom
+					i16 x1 = static_cast<i16>(g.bearingX + g.width);
+					i16 y1 = static_cast<i16>(g.bearingY);            //top
 					
 					return 
 					{
-						x0, y0, //top-left
-						x1, y0, //top-right
-						x1, y1, //bottom-right
-						x0, y1  //bottom-left
+						x0, y1,  //top-left
+						x1, y1,  //top-right
+						x1, y0,  //bottom-right
+						x0, y0   //bottom-left
 					};
 				};
 				
-			vector<i8> vertices = CreateVertices();
+			vector<i16> vertices = CreateVertices();
 				
-			WriteI8(glyphBlockOutput, gOffset, vertices[0]); gOffset++;
-			WriteI8(glyphBlockOutput, gOffset, vertices[1]); gOffset++;
-			WriteI8(glyphBlockOutput, gOffset, vertices[2]); gOffset++;
-			WriteI8(glyphBlockOutput, gOffset, vertices[3]); gOffset++;
-			WriteI8(glyphBlockOutput, gOffset, vertices[4]); gOffset++;
-			WriteI8(glyphBlockOutput, gOffset, vertices[5]); gOffset++;
-			WriteI8(glyphBlockOutput, gOffset, vertices[6]); gOffset++;
-			WriteI8(glyphBlockOutput, gOffset, vertices[7]); gOffset++;
+			WriteI16(glyphBlockOutput, gOffset, vertices[0]); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, vertices[1]); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, vertices[2]); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, vertices[3]); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, vertices[4]); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, vertices[5]); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, vertices[6]); gOffset += 2;
+			WriteI16(glyphBlockOutput, gOffset, vertices[7]); gOffset += 2;
 				
 			//raw pixel data
 			
