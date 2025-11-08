@@ -2,6 +2,8 @@
 
 Converts ttf and otf fonts to .ktf for runtime use.
 
+This cli was built with the help of a [template cli](https://github.com/greenlaser/cli-template).
+
 ---
 
 ## Links
@@ -19,3 +21,5 @@ Converts ttf and otf fonts to .ktf for runtime use.
 [How to build from source](docs/build_from_source.md)
 
 [External libraries](docs/external_libraries.md)
+
+[Lost Empire Entertainment and KalaKit ecosystem](docs/ecosystem.md)
