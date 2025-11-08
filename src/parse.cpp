@@ -15,8 +15,9 @@
 #include "KalaHeaders/string_utils.hpp"
 #include "KalaHeaders/import_ktf.hpp"
 
+#include "KalaCLI/include/core.hpp"
+
 #include "parse.hpp"
-#include "core.hpp"
 #include "export.hpp"
 
 using KalaHeaders::Log;
@@ -27,7 +28,8 @@ using KalaHeaders::GlyphBlock;
 using KalaHeaders::MIN_GLYPH_HEIGHT;
 using KalaHeaders::MAX_GLYPH_HEIGHT;
 
-using KalaFont::Core;
+using KalaCLI::Core;
+
 using KalaFont::Export;
 
 using std::vector;

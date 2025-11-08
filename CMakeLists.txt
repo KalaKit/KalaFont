@@ -34,12 +34,15 @@ set(INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
 set(EXT_SHARED_DIR "${CMAKE_SOURCE_DIR}/_external_shared")
 
 set(EXT_FREETYPE_DIR "${EXT_SHARED_DIR}/FreeType")
+set(EXT_CLI_DIR "${EXT_SHARED_DIR}/KalaCLI")
 
 # Library Paths
 if(IS_RELEASE)
 	set(FREETYPE_LIBRARY_PATH "${EXT_FREETYPE_DIR}/release/freetype.lib")
+	set(CLI_LIBRARY_PATH "${EXT_CLI_DIR}/release/_KalaCLI1.lib")
 else()
 	set(FREETYPE_LIBRARY_PATH "${EXT_FREETYPE_DIR}/debug/freetyped.lib")
+	set(CLI_LIBRARY_PATH "${EXT_CLI_DIR}/debug/_KalaCLI1d.lib")
 endif()
 
 # Source Files
@@ -78,7 +81,8 @@ target_compile_definitions(KalaFont PRIVATE
 # Link libraries
 target_link_libraries(KalaFont PRIVATE
 	opengl32
-	${FREETYPE_LIBRARY_PATH})
+	${FREETYPE_LIBRARY_PATH}
+	${CLI_LIBRARY_PATH})
 
 # Hide console in release mode
 #if(IS_RELEASE)
@@ -95,18 +99,23 @@ install(TARGETS KalaFont DESTINATION ${CMAKE_INSTALL_BINDIR})
 # Copy external binaries
 if(IS_RELEASE)
 	set(BIN_FREETYPE "${EXT_FREETYPE_DIR}/release")
+	set(BIN_KALACLI "${EXT_CLI_DIR}/release")
 else()
 	set(BIN_FREETYPE "${EXT_FREETYPE_DIR}/debug")
+	set(BIN_KALACLI "${EXT_CLI_DIR}/release")
 endif()
 
 if (IS_RELEASE)
 	file(GLOB BIN_FILES
 		"${BIN_FREETYPE}/*.dll"
+		"${BIN_KALACLI}/*.dll"
 	)
 else()
 	file(GLOB BIN_FILES
 		"${BIN_FREETYPE}/*.dll"
 		"${BIN_FREETYPE}/*.pdb"
+		"${BIN_KALACLI}/*.dll"
+		"${BIN_KALACLI}/*.dll"
 	)
 endif()
 
