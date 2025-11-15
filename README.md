@@ -2,7 +2,7 @@
 
 Converts ttf and otf fonts to .ktf for runtime use.
 
-This cli was built with the help of a [template cli](https://github.com/greenlaser/cli-template).
+This cli was built with the help of a [template cli](https://github.com/kalakit/kalacli).
 
 ---
 
