@@ -57,6 +57,15 @@ constexpr u8 MAX_SUPERSAMPLE = 3;    //multiplier
 static void ParseAny(
 	const vector<string>& params,
 	bool isVerbose);
+	
+static void PrintError(const string& message)
+{
+	Log::Print(
+		message,
+		"FONT",
+		LogType::LOG_ERROR,
+		2);
+}
 
 namespace KalaFont
 {
@@ -78,32 +87,28 @@ void ParseAny(
 	FT_Library ft{};
 	if (FT_Init_FreeType(&ft))
 	{
-		Log::Print(
-			"Failed to initialize FreeType!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to initialize FreeType!");
 		
 		return;
 	}
 	
 	Log::Print(
 		"Initialized FreeType.",
-		"COMPILE_FONT",
+		"FONT",
 		LogType::LOG_DEBUG);
 	
 	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
 	path correctOrigin = weakly_canonical(path(Core::currentDir) / params[4]);
 	path correctTarget = weakly_canonical(path(Core::currentDir) / params[5]);
 	
+	//
+	// VERIFY PARAMS
+	//
+	
 	if (params[1] != "bitmap"
 		&& params[1] != "glyph")
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' because the compilation action was invalid!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font '" + correctOrigin.string() + "' because the load action was invalid!");
 		
 		return;
 	}
@@ -111,11 +116,7 @@ void ParseAny(
 	if (HasAnyNonNumber(params[2])
 		|| HasAnyWhiteSpace(params[2]))
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' because the glyph height was an invalid value!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font '" + correctOrigin.string() + "' because the glyph height was an invalid value!");
 		
 		return;
 	}
@@ -123,11 +124,7 @@ void ParseAny(
 	if (glyphHeight < MIN_GLYPH_HEIGHT
 		|| glyphHeight > MAX_GLYPH_HEIGHT)
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' because the glyph height was out of allowed range!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font '" + correctOrigin.string() + "' because the glyph height was out of allowed range!");
 		
 		return;
 	}
@@ -135,11 +132,7 @@ void ParseAny(
 	if (HasAnyNonNumber(params[3])
 		|| HasAnyWhiteSpace(params[3]))
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' because the supersample multiplier was an invalid value!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font '" + correctOrigin.string() + "' because the supersample multiplier was an invalid value!");
 		
 		return;
 	}
@@ -147,35 +140,34 @@ void ParseAny(
 	if (supersampleMultiplier < MIN_SUPERSAMPLE
 		|| supersampleMultiplier > MAX_SUPERSAMPLE)
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' because the supersample multiplier was out of allowed range!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font '" + correctOrigin.string() + "' because the supersample multiplier was out of allowed range!");
 		
 		return;
 	}
 	
+	//
+	// VERIFY ORIGIN
+	//
+	
 	if (!exists(correctOrigin))
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' because it does not exist!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font because input path '" + correctOrigin.string() + "' does not exist!");
 		
 		return;
 	}
+	
 	if (!is_regular_file(correctOrigin)
-		|| !correctOrigin.has_extension()
-		|| (correctOrigin.extension() != ".ttf"
-		&& correctOrigin.extension() != ".otf"))
+		|| !correctOrigin.has_extension())
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' because its extension is not valid!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font because input path '" + correctOrigin.string() + "' is not a regular file!");
+		
+		return;
+	}
+	
+	if (correctOrigin.extension() != ".ttf"
+		&& correctOrigin.extension() != ".otf")
+	{
+		PrintError("Failed to load font because input path '" + correctOrigin.string() + "' extension '" + correctOrigin.extension().string() + "' is not allowed!");
 		
 		return;
 	}
@@ -191,33 +183,25 @@ void ParseAny(
 		
 	if (!canReadOrigin)
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "' because of insufficient read permissions for origin path!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font because you have insufficient read permissions for input path '" + correctOrigin.string() + "'!");
 		
 		return;
 	}
 	
+	//
+	// VERIFY TARGET
+	//
+	
 	if (exists(correctTarget))
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "' because the target path already exists!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font because output path '" + correctTarget.string() + "' already exists!");
 		
 		return;
 	}
 	if (!correctTarget.has_extension()
 		|| correctTarget.extension() != ".ktf")
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "' because the target does not have a valid extension!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font because output path '" + correctTarget.string() + "' extension '" + correctTarget.extension().string() + "' is not allowed!");
 		
 		return;
 	}
@@ -233,28 +217,24 @@ void ParseAny(
 			
 	if (!canWriteTarget)
 	{
-		Log::Print(
-			"Failed to parse font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "' because of insufficient write permissions to target directory!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("Failed to load font because you have insufficient write permissions for output parent path '" + correctTarget.string() + "'!");
 		
 		return;
 	}
 	
+	//
+	// LOAD FONT
+	//
+	
 	Log::Print(
-		"Starting to compile font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "'",
-		"COMPILE_FONT",
+		"Starting to load font '" + correctOrigin.string() + "' to target path '" + correctTarget.string() + "'",
+		"FONT",
 		LogType::LOG_DEBUG);
 		
 	FT_Face face{};
 	if (FT_New_Face(ft, correctOrigin.string().c_str(), 0, &face))
 	{
-		Log::Print(
-			"FreeType failed to set new face for font '" + correctOrigin.string() + "'!",
-			"COMPILE_FONT",
-			LogType::LOG_ERROR,
-			2);
+		PrintError("FreeType failed to set new face for font '" + correctOrigin.string() + "'!");
 		
 		return;
 	}
@@ -326,11 +306,7 @@ void ParseAny(
 		}
 		else
 		{
-			Log::Print(
-				"FreeType failed to load glyph '" + string(1, static_cast<char>(charCode)) + "'!",
-				"COMPILE_FONT",
-				LogType::LOG_ERROR,
-				2);
+			PrintError("FreeType failed to load glyph '" + string(1, static_cast<char>(charCode)) + "'!");
 		}
 		
 		charCode = FT_Get_Next_Char(face, charCode, &glyphIndex);
@@ -339,8 +315,8 @@ void ParseAny(
 	u8 type = params[1] == "bitmap" ? 1 : 2;
 	
 	Log::Print(
-		"Finished compiling font!",
-		"COMPILE_FONT",
+		"Finished loading font!",
+		"FONT",
 		LogType::LOG_SUCCESS);
 	
 	if (type == 1)

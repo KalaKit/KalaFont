@@ -29,11 +29,23 @@ using KalaHeaders::MAX_GLYPH_TABLE_SIZE;
 
 using std::ofstream;
 using std::ios;
+using std::string;
 using std::to_string;
 
 using i8 = int8_t;
 using i16 = int16_t;
 using u32 = uint32_t;
+
+static void PrintError(const string& message, bool isBitMap)
+{
+	string type = isBitMap ? "EXPORT_BITMAP" : "EXPORT_GLYPH";
+	
+	Log::Print(
+		message,
+		type,
+		LogType::LOG_ERROR,
+		2);
+}
 
 namespace KalaFont
 {
@@ -46,22 +58,18 @@ namespace KalaFont
 	{
 		if (glyphBlocks.size() > MAX_GLYPH_COUNT)
 		{
-			Log::Print(
+			PrintError(
 				"Failed to export because glyph count exceeded max allowed count '" + to_string(MAX_GLYPH_COUNT) + "'!",
-				"EXPORT_BITMAP",
-				LogType::LOG_ERROR,
-				2);
+				true);
 		
 			return;
 		}
 		
 		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_TABLE_SIZE)
 		{
-			Log::Print(
+			PrintError(
 				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_TABLE_SIZE) + "'!",
-				"EXPORT_BITMAP",
-				LogType::LOG_ERROR,
-				2);
+				true);
 		
 			return;
 		}
@@ -97,11 +105,9 @@ namespace KalaFont
 		
 		if (CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size() > MAX_GLYPH_TABLE_SIZE)
 		{
-			Log::Print(
+			PrintError(
 				"Failed to export because glyph data size exceeded max allowed size '" + to_string(MAX_GLYPH_TABLE_SIZE) + "'!",
-				"EXPORT_GLYPH",
-				LogType::LOG_ERROR,
-				2);
+				false);
 		
 			return;
 		}
@@ -120,19 +126,16 @@ namespace KalaFont
 		//
 			
 		GlyphHeader glyphHeader{};
-		glyphHeader.type = type;
-		glyphHeader.glyphHeight = glyphHeight;
-		glyphHeader.glyphCount = glyphBlocks.size();
 		
 		u32 offset{};
 		
 		output.reserve(CORRECT_GLYPH_HEADER_SIZE);
 		
-		WriteU32(output, offset, glyphHeader.magic);       offset += 4;
-		WriteU8(output, offset, glyphHeader.version);      offset++;
-		WriteU8(output, offset, glyphHeader.type);         offset++;
-		WriteU16(output, offset, glyphHeader.glyphHeight); offset += 2;
-		WriteU32(output, offset, glyphHeader.glyphCount);  offset += 4;
+		WriteU32(output, offset, glyphHeader.magic);  offset += 4;
+		WriteU8(output, offset, glyphHeader.version); offset++;
+		WriteU8(output, offset, type);                offset++;
+		WriteU16(output, offset, glyphHeight);        offset += 2;
+		WriteU32(output, offset, glyphBlocks.size()); offset += 4;
 		
 		//indices
 		
@@ -155,7 +158,7 @@ namespace KalaFont
 		WriteU8(output, offset, glyphHeader.uvs[3][1]); offset++;
 		
 		//
-		// THEN STORE THE GLYPH TABLE
+		// THEN STORE THE GLYPH TABLES
 		//
 		
 		size_t totalGTBytes = CORRECT_GLYPH_TABLE_SIZE * glyphBlocks.size();

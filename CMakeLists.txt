@@ -102,7 +102,7 @@ if(IS_RELEASE)
 	set(BIN_KALACLI "${EXT_CLI_DIR}/release")
 else()
 	set(BIN_FREETYPE "${EXT_FREETYPE_DIR}/debug")
-	set(BIN_KALACLI "${EXT_CLI_DIR}/release")
+	set(BIN_KALACLI "${EXT_CLI_DIR}/debug")
 endif()
 
 if (IS_RELEASE)
