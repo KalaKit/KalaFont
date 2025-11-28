@@ -13,7 +13,7 @@
 
 #include "KalaHeaders/log_utils.hpp"
 #include "KalaHeaders/string_utils.hpp"
-#include "KalaHeaders/import_ktf.hpp"
+#include "KalaHeaders/import_kfd.hpp"
 
 #include "KalaCLI/include/core.hpp"
 
@@ -199,7 +199,7 @@ void ParseAny(
 		return;
 	}
 	if (!correctTarget.has_extension()
-		|| correctTarget.extension() != ".ktf")
+		|| correctTarget.extension() != ".kfd")
 	{
 		PrintError("Failed to load font because output path '" + correctTarget.string() + "' extension '" + correctTarget.extension().string() + "' is not allowed!");
 		

@@ -9,7 +9,7 @@
 #include <string>
 #include <filesystem>
 
-#include "KalaHeaders/import_ktf.hpp"
+#include "KalaHeaders/import_kfd.hpp"
 
 using KalaHeaders::GlyphBlock;
 
