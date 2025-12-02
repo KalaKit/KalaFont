@@ -12,14 +12,14 @@
 
 #include "export.hpp"
 
-using KalaHeaders::Log;
-using KalaHeaders::LogType;
-using KalaHeaders::WriteU8;
-using KalaHeaders::WriteU16;
-using KalaHeaders::WriteU32;
-using KalaHeaders::WriteI8;
-using KalaHeaders::WriteI16;
-using KalaHeaders::WriteI32;
+using KalaHeaders::KalaLog::Log;
+using KalaHeaders::KalaLog::LogType;
+using KalaHeaders::KalaFile::WriteU8;
+using KalaHeaders::KalaFile::WriteU16;
+using KalaHeaders::KalaFile::WriteU32;
+using KalaHeaders::KalaFile::WriteI8;
+using KalaHeaders::KalaFile::WriteI16;
+using KalaHeaders::KalaFile::WriteI32;
 using KalaHeaders::KalaFontData::GlyphHeader;
 using KalaHeaders::KalaFontData::CORRECT_GLYPH_HEADER_SIZE;
 using KalaHeaders::KalaFontData::CORRECT_GLYPH_TABLE_SIZE;

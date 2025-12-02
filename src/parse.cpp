@@ -20,10 +20,10 @@
 #include "parse.hpp"
 #include "export.hpp"
 
-using KalaHeaders::Log;
-using KalaHeaders::LogType;
-using KalaHeaders::HasAnyNonNumber;
-using KalaHeaders::HasAnyWhiteSpace;
+using KalaHeaders::KalaLog::Log;
+using KalaHeaders::KalaLog::LogType;
+using KalaHeaders::KalaString::HasAnyNonNumber;
+using KalaHeaders::KalaString::HasAnyWhiteSpace;
 using KalaHeaders::KalaFontData::GlyphBlock;
 using KalaHeaders::KalaFontData::MIN_GLYPH_HEIGHT;
 using KalaHeaders::KalaFontData::MAX_GLYPH_HEIGHT;
