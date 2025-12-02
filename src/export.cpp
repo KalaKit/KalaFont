@@ -20,12 +20,12 @@ using KalaHeaders::WriteU32;
 using KalaHeaders::WriteI8;
 using KalaHeaders::WriteI16;
 using KalaHeaders::WriteI32;
-using KalaHeaders::GlyphHeader;
-using KalaHeaders::CORRECT_GLYPH_HEADER_SIZE;
-using KalaHeaders::CORRECT_GLYPH_TABLE_SIZE;
-using KalaHeaders::RAW_PIXEL_DATA_OFFSET;
-using KalaHeaders::MAX_GLYPH_COUNT;
-using KalaHeaders::MAX_GLYPH_TABLE_SIZE;
+using KalaHeaders::KalaFontData::GlyphHeader;
+using KalaHeaders::KalaFontData::CORRECT_GLYPH_HEADER_SIZE;
+using KalaHeaders::KalaFontData::CORRECT_GLYPH_TABLE_SIZE;
+using KalaHeaders::KalaFontData::RAW_PIXEL_DATA_OFFSET;
+using KalaHeaders::KalaFontData::MAX_GLYPH_COUNT;
+using KalaHeaders::KalaFontData::MAX_GLYPH_TABLE_SIZE;
 
 using std::ofstream;
 using std::ios;

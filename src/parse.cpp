@@ -24,9 +24,9 @@ using KalaHeaders::Log;
 using KalaHeaders::LogType;
 using KalaHeaders::HasAnyNonNumber;
 using KalaHeaders::HasAnyWhiteSpace;
-using KalaHeaders::GlyphBlock;
-using KalaHeaders::MIN_GLYPH_HEIGHT;
-using KalaHeaders::MAX_GLYPH_HEIGHT;
+using KalaHeaders::KalaFontData::GlyphBlock;
+using KalaHeaders::KalaFontData::MIN_GLYPH_HEIGHT;
+using KalaHeaders::KalaFontData::MAX_GLYPH_HEIGHT;
 
 using KalaCLI::Core;
 

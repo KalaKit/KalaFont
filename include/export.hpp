@@ -11,7 +11,7 @@
 
 #include "KalaHeaders/import_kfd.hpp"
 
-using KalaHeaders::GlyphBlock;
+using KalaHeaders::KalaFontData::GlyphBlock;
 
 namespace KalaFont
 {
