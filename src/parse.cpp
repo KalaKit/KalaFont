@@ -297,24 +297,13 @@ void ParseAny(
 			oss.str(""); 
 			oss.clear();
 		
-			oss << "Glyph info for 'U+" << hex << glyphBlock.charCode << dec << "'\n"
-				<< "  width:    " << glyphBlock.width << "\n"
-				<< "  height:   " << glyphBlock.height << "\n"
-				<< "  bearingX: " << glyphBlock.bearingX << "\n"
-				<< "  bearingY: " << glyphBlock.bearingY << "\n"
-				<< "  advance:  " << glyphBlock.advance << "\n"
-				<< "  size:     " << glyphBlock.rawPixelSize << "\n\n";
-				
-			oss << "Glyph bitmap for 'U+" << hex << glyphBlock.charCode << dec << "'\n\n";
-			
-			for (int y = 0; y < glyphBlock.height; ++y)
-			{
-				for (int x = 0; x < glyphBlock.width; ++x)
-				{
-					oss << ((bmp.buffer[y * abs(bmp.pitch) + x] > 128) ? '#' : ' ');
-				}
-				oss << '\n';
-			}
+			oss << "Glyph info for 'U+" << hex << g.charCode << dec << "'\n"
+				<< "  width:    " << g.width << "\n"
+				<< "  height:   " << g.height << "\n"
+				<< "  bearingX: " << g.bearingX << "\n"
+				<< "  bearingY: " << g.bearingY << "\n"
+				<< "  advance:  " << g.advance << "\n"
+				<< "  size:     " << g.rawPixelSize << "\n\n";
 			
 			oss << "--------------------\n";
 				
