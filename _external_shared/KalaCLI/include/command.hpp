@@ -44,7 +44,7 @@ namespace KalaCLI
 	class LIB_API CommandManager
 	{
 	public:
-		static inline vector<Command> commands{};
+		static vector<Command>& GetCommands();
 
 		//Parse given strings from end user
 		static bool ParseCommand(const vector<string>& params);

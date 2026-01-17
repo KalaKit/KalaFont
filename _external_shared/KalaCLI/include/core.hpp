@@ -18,7 +18,7 @@ namespace KalaCLI
 	class LIB_API Core
 	{
 	public:
-		static inline string currentDir{};
+		static string& GetCurrentDir();
 
 		static void Run(
 			int argc,

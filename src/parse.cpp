@@ -96,10 +96,12 @@ void ParseAny(
 		"Initialized FreeType.",
 		"FONT",
 		LogType::LOG_DEBUG);
+
+	string& currentDir = Core::GetCurrentDir();
 	
-	if (Core::currentDir.empty()) Core::currentDir = current_path().string();
-	path correctOrigin = weakly_canonical(path(Core::currentDir) / params[4]);
-	path correctTarget = weakly_canonical(path(Core::currentDir) / params[5]);
+	if (currentDir.empty()) currentDir = current_path().string();
+	path correctOrigin = weakly_canonical(path(currentDir) / params[4]);
+	path correctTarget = weakly_canonical(path(currentDir) / params[5]);
 	
 	//
 	// VERIFY PARAMS
